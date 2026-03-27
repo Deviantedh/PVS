@@ -1,0 +1,11 @@
+# macOS
+.DS_Store
+
+# build
+build/
+*.o
+*.out
+
+# IDE
+.vscode/
+.idea/
