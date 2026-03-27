@@ -1,0 +1,115 @@
+#include "sim/bus.h"
+
+#include <stddef.h>
+
+static bus_result_t bus_result_make(
+    bus_status_t status,
+    bus_access_type_t access,
+    uint32_t addr,
+    uint8_t width
+) {
+    bus_result_t result;
+
+    result.status = status;
+    result.access = access;
+    result.addr = addr;
+    result.width = width;
+    return result;
+}
+
+static bus_result_t bus_translate(
+    const bus_t *bus,
+    uint32_t addr,
+    uint8_t **ptr,
+    size_t width,
+    bus_access_type_t access
+) {
+    if (bus == NULL || bus->memory == NULL || ptr == NULL) {
+        return bus_result_make(BUS_STATUS_BAD_ARGUMENT, access, addr, (uint8_t)width);
+    }
+
+    if ((width == 2u && (addr & 0x1u) != 0u) || (width == 4u && (addr & 0x3u) != 0u)) {
+        return bus_result_make(BUS_STATUS_UNALIGNED, access, addr, (uint8_t)width);
+    }
+
+    if (addr >= SIM_FLASH_BASE && (size_t)(addr - SIM_FLASH_BASE) + width <= bus->memory->flash_size) {
+        *ptr = &bus->memory->flash[addr - SIM_FLASH_BASE];
+        return bus_result_make(BUS_STATUS_OK, access, addr, (uint8_t)width);
+    }
+
+    if (addr >= SIM_SRAM_BASE && (size_t)(addr - SIM_SRAM_BASE) + width <= bus->memory->sram_size) {
+        *ptr = &bus->memory->sram[addr - SIM_SRAM_BASE];
+        return bus_result_make(BUS_STATUS_OK, access, addr, (uint8_t)width);
+    }
+
+    return bus_result_make(BUS_STATUS_UNMAPPED, access, addr, (uint8_t)width);
+}
+
+void bus_init(bus_t *bus, memory_t *memory) {
+    if (bus == NULL) {
+        return;
+    }
+
+    bus->memory = memory;
+}
+
+bus_result_t bus_read16(bus_t *bus, uint32_t addr, uint16_t *value) {
+    uint8_t *ptr = NULL;
+    bus_result_t result = bus_translate(bus, addr, &ptr, sizeof(uint16_t), BUS_ACCESS_READ);
+
+    if (value == NULL) {
+        return bus_result_make(BUS_STATUS_BAD_ARGUMENT, BUS_ACCESS_READ, addr, sizeof(uint16_t));
+    }
+
+    if (result.status != BUS_STATUS_OK) {
+        return result;
+    }
+
+    *value = (uint16_t)ptr[0]
+        | ((uint16_t)ptr[1] << 8);
+    return result;
+}
+
+bus_result_t bus_read32(bus_t *bus, uint32_t addr, uint32_t *value) {
+    uint8_t *ptr = NULL;
+    bus_result_t result = bus_translate(bus, addr, &ptr, sizeof(uint32_t), BUS_ACCESS_READ);
+
+    if (value == NULL) {
+        return bus_result_make(BUS_STATUS_BAD_ARGUMENT, BUS_ACCESS_READ, addr, sizeof(uint32_t));
+    }
+
+    if (result.status != BUS_STATUS_OK) {
+        return result;
+    }
+
+    *value = (uint32_t)ptr[0]
+        | ((uint32_t)ptr[1] << 8)
+        | ((uint32_t)ptr[2] << 16)
+        | ((uint32_t)ptr[3] << 24);
+    return result;
+}
+
+bus_result_t bus_write32(bus_t *bus, uint32_t addr, uint32_t value) {
+    uint8_t *ptr = NULL;
+    bus_result_t result = bus_translate(bus, addr, &ptr, sizeof(uint32_t), BUS_ACCESS_WRITE);
+
+    if (result.status != BUS_STATUS_OK) {
+        return result;
+    }
+
+    ptr[0] = (uint8_t)(value & 0xFFu);
+    ptr[1] = (uint8_t)((value >> 8) & 0xFFu);
+    ptr[2] = (uint8_t)((value >> 16) & 0xFFu);
+    ptr[3] = (uint8_t)((value >> 24) & 0xFFu);
+    return result;
+}
+
+int bus_result_is_ok(bus_result_t result) {
+    return result.status == BUS_STATUS_OK;
+}
+
+int bus_tick(bus_t *bus, uint32_t ticks) {
+    (void)bus;
+    (void)ticks;
+    return 0;
+}
