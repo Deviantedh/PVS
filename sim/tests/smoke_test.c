@@ -34,6 +34,10 @@ static uint16_t encode_b_cond(uint8_t cond, int8_t imm8) {
     return (uint16_t)(0xD000u | ((uint16_t)cond << 8) | (uint8_t)imm8);
 }
 
+static uint16_t encode_b(int16_t imm11) {
+    return (uint16_t)(0xE000u | ((uint16_t)imm11 & 0x07FFu));
+}
+
 static int test_reset_sequence(void) {
     sim_t sim;
     uint8_t firmware[16] = {0};
@@ -232,6 +236,80 @@ static int test_add_immediate(void) {
     return 0;
 }
 
+static int test_add_register(void) {
+    sim_t sim;
+    uint8_t firmware[20] = {0};
+
+    encode_u32le(&firmware[0], 0x20002000u);
+    encode_u32le(&firmware[4], SIM_FLASH_BASE + 8u + 1u);
+    encode_u16le(&firmware[8], 0x2002u);
+    encode_u16le(&firmware[10], 0x2103u);
+    encode_u16le(&firmware[12], 0x1842u);
+
+    if (sim_init(&sim, NULL) != 0) {
+        return 1;
+    }
+
+    if (sim_load_firmware(&sim, firmware, sizeof(firmware)) != 0 || sim_reset(&sim) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (sim_step(&sim) != SIM_STOP_NONE
+        || sim_step(&sim) != SIM_STOP_NONE
+        || sim_step(&sim) != SIM_STOP_NONE) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (expect_u32(sim.cpu.r[2], 5u) != 0
+        || expect_flag_set(sim.cpu.xpsr, CPU_XPSR_Z_MASK, 0) != 0
+        || expect_flag_set(sim.cpu.xpsr, CPU_XPSR_N_MASK, 0) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    sim_destroy(&sim);
+    return 0;
+}
+
+static int test_sub_register(void) {
+    sim_t sim;
+    uint8_t firmware[20] = {0};
+
+    encode_u32le(&firmware[0], 0x20002000u);
+    encode_u32le(&firmware[4], SIM_FLASH_BASE + 8u + 1u);
+    encode_u16le(&firmware[8], 0x2005u);
+    encode_u16le(&firmware[10], 0x2103u);
+    encode_u16le(&firmware[12], 0x1A42u);
+
+    if (sim_init(&sim, NULL) != 0) {
+        return 1;
+    }
+
+    if (sim_load_firmware(&sim, firmware, sizeof(firmware)) != 0 || sim_reset(&sim) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (sim_step(&sim) != SIM_STOP_NONE
+        || sim_step(&sim) != SIM_STOP_NONE
+        || sim_step(&sim) != SIM_STOP_NONE) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (expect_u32(sim.cpu.r[2], 2u) != 0
+        || expect_flag_set(sim.cpu.xpsr, CPU_XPSR_C_MASK, 1) != 0
+        || expect_flag_set(sim.cpu.xpsr, CPU_XPSR_N_MASK, 0) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    sim_destroy(&sim);
+    return 0;
+}
+
 static int test_cmp_flags(void) {
     sim_t sim;
     uint8_t firmware[20] = {0};
@@ -339,7 +417,7 @@ static int test_beq_taken(void) {
     encode_u32le(&firmware[4], SIM_FLASH_BASE + 8u + 1u);
     encode_u16le(&firmware[8], 0x2001u);
     encode_u16le(&firmware[10], 0x2801u);
-    encode_u16le(&firmware[12], encode_b_cond(0x0u, 1));
+    encode_u16le(&firmware[12], encode_b_cond(0x0u, 0));
     encode_u16le(&firmware[14], 0x2101u);
     encode_u16le(&firmware[16], 0x2102u);
 
@@ -408,19 +486,18 @@ static int test_bne_not_taken(void) {
     return 0;
 }
 
-static int test_bge_taken_signed(void) {
+static int test_blt_taken_signed(void) {
     sim_t sim;
     uint8_t firmware[24] = {0};
 
     encode_u32le(&firmware[0], 0x20002000u);
     encode_u32le(&firmware[4], SIM_FLASH_BASE + 8u + 1u);
-    encode_u16le(&firmware[8], 0x2001u);
-    encode_u16le(&firmware[10], 0x2102u);
-    encode_u16le(&firmware[12], 0x1E49u);
-    encode_u16le(&firmware[14], 0x4288u);
-    encode_u16le(&firmware[16], encode_b_cond(0xAu, 1));
-    encode_u16le(&firmware[18], 0x2201u);
-    encode_u16le(&firmware[20], 0x2202u);
+    encode_u16le(&firmware[8], 0x2000u);
+    encode_u16le(&firmware[10], 0x2101u);
+    encode_u16le(&firmware[12], 0x4288u);
+    encode_u16le(&firmware[14], encode_b_cond(0xBu, 0));
+    encode_u16le(&firmware[16], 0x2201u);
+    encode_u16le(&firmware[18], 0x2202u);
 
     if (sim_init(&sim, NULL) != 0) {
         return 1;
@@ -457,7 +534,7 @@ static int test_bcs_taken_unsigned(void) {
     encode_u32le(&firmware[4], SIM_FLASH_BASE + 8u + 1u);
     encode_u16le(&firmware[8], 0x2002u);
     encode_u16le(&firmware[10], 0x2801u);
-    encode_u16le(&firmware[12], encode_b_cond(0x2u, 1));
+    encode_u16le(&firmware[12], encode_b_cond(0x2u, 0));
     encode_u16le(&firmware[14], 0x2101u);
     encode_u16le(&firmware[16], 0x2102u);
 
@@ -487,29 +564,91 @@ static int test_bcs_taken_unsigned(void) {
     return 0;
 }
 
-static int test_flag_corner_cases(void) {
+static int test_backward_unconditional_branch(void) {
     sim_t sim;
-    uint8_t firmware[80] = {0};
+    uint8_t firmware[16] = {0};
 
     encode_u32le(&firmware[0], 0x20002000u);
     encode_u32le(&firmware[4], SIM_FLASH_BASE + 8u + 1u);
-    encode_u16le(&firmware[8], 0x20FFu);
+    encode_u16le(&firmware[8], 0xBF00u);
+    encode_u16le(&firmware[10], encode_b(-3));
+
+    if (sim_init(&sim, NULL) != 0) {
+        return 1;
+    }
+
+    if (sim_load_firmware(&sim, firmware, sizeof(firmware)) != 0 || sim_reset(&sim) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (sim_step(&sim) != SIM_STOP_NONE || sim_step(&sim) != SIM_STOP_NONE) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (expect_u32(sim.cpu.pc, SIM_FLASH_BASE + 8u + 1u) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    sim_destroy(&sim);
+    return 0;
+}
+
+static int test_backward_conditional_branch(void) {
+    sim_t sim;
+    uint8_t firmware[24] = {0};
+
+    encode_u32le(&firmware[0], 0x20002000u);
+    encode_u32le(&firmware[4], SIM_FLASH_BASE + 8u + 1u);
+    encode_u16le(&firmware[8], 0x2001u);
+    encode_u16le(&firmware[10], 0x2800u);
+    encode_u16le(&firmware[12], encode_b_cond(0x1u, (int8_t)-3));
+
+    if (sim_init(&sim, NULL) != 0) {
+        return 1;
+    }
+
+    if (sim_load_firmware(&sim, firmware, sizeof(firmware)) != 0 || sim_reset(&sim) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (sim_step(&sim) != SIM_STOP_NONE
+        || sim_step(&sim) != SIM_STOP_NONE
+        || sim_step(&sim) != SIM_STOP_NONE) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (expect_u32(sim.cpu.pc, SIM_FLASH_BASE + 10u + 1u) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    sim_destroy(&sim);
+    return 0;
+}
+
+static int test_flag_corner_cases(void) {
+    sim_t sim;
+    uint8_t firmware[40] = {0};
+
+    encode_u32le(&firmware[0], 0x20002000u);
+    encode_u32le(&firmware[4], SIM_FLASH_BASE + 8u + 1u);
+    encode_u16le(&firmware[8], 0x4803u);
     encode_u16le(&firmware[10], 0x3001u);
-    encode_u16le(&firmware[12], 0x490Eu);
-    encode_u16le(&firmware[14], 0x6808u);
-    encode_u16le(&firmware[16], 0x3001u);
-    encode_u32le(&firmware[72], 0x7FFFFFFFu);
+    encode_u16le(&firmware[12], 0x4803u);
+    encode_u16le(&firmware[14], 0x3001u);
+    encode_u32le(&firmware[24], 0xFFFFFFFFu);
+    encode_u32le(&firmware[28], 0x7FFFFFFFu);
 
     if (sim_init(&sim, NULL) != 0) {
         return 1;
     }
 
     if (sim_load_firmware(&sim, firmware, sizeof(firmware)) != 0) {
-        sim_destroy(&sim);
-        return 1;
-    }
-
-    if (memory_load_flash(&sim.memory, SIM_FLASH_BASE + 72u, &firmware[72], sizeof(uint32_t)) != 0) {
         sim_destroy(&sim);
         return 1;
     }
@@ -533,7 +672,6 @@ static int test_flag_corner_cases(void) {
     }
 
     if (sim_step(&sim) != SIM_STOP_NONE
-        || sim_step(&sim) != SIM_STOP_NONE
         || sim_step(&sim) != SIM_STOP_NONE) {
         sim_destroy(&sim);
         return 1;
@@ -543,6 +681,169 @@ static int test_flag_corner_cases(void) {
         || expect_flag_set(sim.cpu.xpsr, CPU_XPSR_N_MASK, 1) != 0
         || expect_flag_set(sim.cpu.xpsr, CPU_XPSR_V_MASK, 1) != 0
         || expect_flag_set(sim.cpu.xpsr, CPU_XPSR_C_MASK, 0) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    sim_destroy(&sim);
+    return 0;
+}
+
+static int test_sub_carry_borrow_behavior(void) {
+    sim_t sim;
+    uint8_t firmware[24] = {0};
+
+    encode_u32le(&firmware[0], 0x20002000u);
+    encode_u32le(&firmware[4], SIM_FLASH_BASE + 8u + 1u);
+    encode_u16le(&firmware[8], 0x2001u);
+    encode_u16le(&firmware[10], 0x3802u);
+    encode_u16le(&firmware[12], 0x2002u);
+    encode_u16le(&firmware[14], 0x3801u);
+
+    if (sim_init(&sim, NULL) != 0) {
+        return 1;
+    }
+
+    if (sim_load_firmware(&sim, firmware, sizeof(firmware)) != 0 || sim_reset(&sim) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (sim_step(&sim) != SIM_STOP_NONE || sim_step(&sim) != SIM_STOP_NONE) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (expect_flag_set(sim.cpu.xpsr, CPU_XPSR_C_MASK, 0) != 0
+        || expect_flag_set(sim.cpu.xpsr, CPU_XPSR_N_MASK, 1) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (sim_step(&sim) != SIM_STOP_NONE || sim_step(&sim) != SIM_STOP_NONE) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (expect_flag_set(sim.cpu.xpsr, CPU_XPSR_C_MASK, 1) != 0
+        || expect_flag_set(sim.cpu.xpsr, CPU_XPSR_N_MASK, 0) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    sim_destroy(&sim);
+    return 0;
+}
+
+static int test_sub_negative_result(void) {
+    sim_t sim;
+    uint8_t firmware[20] = {0};
+
+    encode_u32le(&firmware[0], 0x20002000u);
+    encode_u32le(&firmware[4], SIM_FLASH_BASE + 8u + 1u);
+    encode_u16le(&firmware[8], 0x2001u);
+    encode_u16le(&firmware[10], 0x2102u);
+    encode_u16le(&firmware[12], 0x1A42u);
+
+    if (sim_init(&sim, NULL) != 0) {
+        return 1;
+    }
+
+    if (sim_load_firmware(&sim, firmware, sizeof(firmware)) != 0 || sim_reset(&sim) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (sim_step(&sim) != SIM_STOP_NONE
+        || sim_step(&sim) != SIM_STOP_NONE
+        || sim_step(&sim) != SIM_STOP_NONE) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (expect_u32(sim.cpu.r[2], 0xFFFFFFFFu) != 0
+        || expect_flag_set(sim.cpu.xpsr, CPU_XPSR_N_MASK, 1) != 0
+        || expect_flag_set(sim.cpu.xpsr, CPU_XPSR_C_MASK, 0) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    sim_destroy(&sim);
+    return 0;
+}
+
+static int test_branch_depends_on_prior_flags(void) {
+    sim_t sim;
+    uint8_t firmware[24] = {0};
+
+    encode_u32le(&firmware[0], 0x20002000u);
+    encode_u32le(&firmware[4], SIM_FLASH_BASE + 8u + 1u);
+    encode_u16le(&firmware[8], 0x2001u);
+    encode_u16le(&firmware[10], 0x3001u);
+    encode_u16le(&firmware[12], 0x3802u);
+    encode_u16le(&firmware[14], encode_b_cond(0x0u, 0));
+    encode_u16le(&firmware[16], 0x2101u);
+    encode_u16le(&firmware[18], 0x2102u);
+
+    if (sim_init(&sim, NULL) != 0) {
+        return 1;
+    }
+
+    if (sim_load_firmware(&sim, firmware, sizeof(firmware)) != 0 || sim_reset(&sim) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (sim_step(&sim) != SIM_STOP_NONE
+        || sim_step(&sim) != SIM_STOP_NONE
+        || sim_step(&sim) != SIM_STOP_NONE
+        || sim_step(&sim) != SIM_STOP_NONE
+        || sim_step(&sim) != SIM_STOP_NONE) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (expect_u32(sim.cpu.r[1], 2u) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    sim_destroy(&sim);
+    return 0;
+}
+
+static int test_simple_loop_iterations(void) {
+    sim_t sim;
+    uint8_t firmware[24] = {0};
+
+    encode_u32le(&firmware[0], 0x20002000u);
+    encode_u32le(&firmware[4], SIM_FLASH_BASE + 8u + 1u);
+    encode_u16le(&firmware[8], 0x2000u);
+    encode_u16le(&firmware[10], 0x2103u);
+    encode_u16le(&firmware[12], 0x1840u);
+    encode_u16le(&firmware[14], 0x3901u);
+    encode_u16le(&firmware[16], 0x2900u);
+    encode_u16le(&firmware[18], encode_b_cond(0x1u, (int8_t)-5));
+
+    if (sim_init(&sim, NULL) != 0) {
+        return 1;
+    }
+
+    if (sim_load_firmware(&sim, firmware, sizeof(firmware)) != 0 || sim_reset(&sim) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    for (int i = 0; i < 14; ++i) {
+        if (sim_step(&sim) != SIM_STOP_NONE) {
+            sim_destroy(&sim);
+            return 1;
+        }
+    }
+
+    if (expect_u32(sim.cpu.r[0], 6u) != 0
+        || expect_u32(sim.cpu.r[1], 0u) != 0
+        || expect_flag_set(sim.cpu.xpsr, CPU_XPSR_Z_MASK, 1) != 0) {
         sim_destroy(&sim);
         return 1;
     }
@@ -697,13 +998,21 @@ int main(void) {
     RUN_TEST(test_ldr_literal);
     RUN_TEST(test_mov_register);
     RUN_TEST(test_add_immediate);
+    RUN_TEST(test_add_register);
+    RUN_TEST(test_sub_register);
     RUN_TEST(test_cmp_flags);
     RUN_TEST(test_cmp_register);
     RUN_TEST(test_beq_taken);
     RUN_TEST(test_bne_not_taken);
-    RUN_TEST(test_bge_taken_signed);
+    RUN_TEST(test_blt_taken_signed);
     RUN_TEST(test_bcs_taken_unsigned);
+    RUN_TEST(test_backward_unconditional_branch);
+    RUN_TEST(test_backward_conditional_branch);
     RUN_TEST(test_flag_corner_cases);
+    RUN_TEST(test_sub_carry_borrow_behavior);
+    RUN_TEST(test_sub_negative_result);
+    RUN_TEST(test_branch_depends_on_prior_flags);
+    RUN_TEST(test_simple_loop_iterations);
     RUN_TEST(test_ldr_str_sram);
     RUN_TEST(test_unsupported_instruction);
     RUN_TEST(test_faults);

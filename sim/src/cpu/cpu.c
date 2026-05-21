@@ -119,6 +119,34 @@ static cpu_step_result_t cpu_execute_thumb16(sim_t *sim, uint16_t instr) {
         return cpu_step_result_make(CPU_STEP_OK, bus_result);
     }
 
+    if ((instr & 0xFE00u) == 0x1800u) {
+        uint32_t rm = (instr >> 6) & 0x7u;
+        uint32_t rn = (instr >> 3) & 0x7u;
+        uint32_t rd = instr & 0x7u;
+        uint32_t left = sim->cpu.r[rn];
+        uint32_t right = sim->cpu.r[rm];
+        uint32_t result = left + right;
+
+        sim->cpu.r[rd] = result;
+        cpu_update_add_flags(&sim->cpu, left, right, result);
+        sim->cpu.pc += 2u;
+        return cpu_step_result_make(CPU_STEP_OK, bus_result);
+    }
+
+    if ((instr & 0xFE00u) == 0x1A00u) {
+        uint32_t rm = (instr >> 6) & 0x7u;
+        uint32_t rn = (instr >> 3) & 0x7u;
+        uint32_t rd = instr & 0x7u;
+        uint32_t left = sim->cpu.r[rn];
+        uint32_t right = sim->cpu.r[rm];
+        uint32_t result = left - right;
+
+        sim->cpu.r[rd] = result;
+        cpu_update_sub_flags(&sim->cpu, left, right, result);
+        sim->cpu.pc += 2u;
+        return cpu_step_result_make(CPU_STEP_OK, bus_result);
+    }
+
     if ((instr & 0xF800u) == 0x3000u) {
         uint32_t rdn = (instr >> 8) & 0x7u;
         uint32_t imm8 = instr & 0x00FFu;
