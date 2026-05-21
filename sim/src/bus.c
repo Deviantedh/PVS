@@ -2,6 +2,8 @@
 
 #include <stddef.h>
 
+#include "sim/tim2.h"
+
 static bus_result_t bus_result_make(
     bus_status_t status,
     bus_access_type_t access,
@@ -45,12 +47,26 @@ static bus_result_t bus_translate(
     return bus_result_make(BUS_STATUS_UNMAPPED, access, addr, (uint8_t)width);
 }
 
-void bus_init(bus_t *bus, memory_t *memory) {
+static int bus_is_unaligned(uint32_t addr, size_t width) {
+    return (width == 2u && (addr & 0x1u) != 0u) || (width == 4u && (addr & 0x3u) != 0u);
+}
+
+static int bus_tim2_offset(uint32_t addr, uint32_t *offset) {
+    if (addr < TIM2_BASE || offset == NULL) {
+        return 0;
+    }
+
+    *offset = addr - TIM2_BASE;
+    return *offset <= TIM2_ARR_OFFSET;
+}
+
+void bus_init(bus_t *bus, memory_t *memory, tim2_t *tim2) {
     if (bus == NULL) {
         return;
     }
 
     bus->memory = memory;
+    bus->tim2 = tim2;
 }
 
 bus_result_t bus_read8(bus_t *bus, uint32_t addr, uint8_t *value) {
@@ -88,12 +104,26 @@ bus_result_t bus_read16(bus_t *bus, uint32_t addr, uint16_t *value) {
 
 bus_result_t bus_read32(bus_t *bus, uint32_t addr, uint32_t *value) {
     uint8_t *ptr = NULL;
-    bus_result_t result = bus_translate(bus, addr, &ptr, sizeof(uint32_t), BUS_ACCESS_READ);
+    bus_result_t result;
+    uint32_t offset = 0;
 
     if (value == NULL) {
         return bus_result_make(BUS_STATUS_BAD_ARGUMENT, BUS_ACCESS_READ, addr, sizeof(uint32_t));
     }
 
+    if (bus_is_unaligned(addr, sizeof(uint32_t))) {
+        return bus_result_make(BUS_STATUS_UNALIGNED, BUS_ACCESS_READ, addr, sizeof(uint32_t));
+    }
+
+    if (bus != NULL && bus->tim2 != NULL && bus_tim2_offset(addr, &offset)) {
+        if (tim2_read32(bus->tim2, offset, value) == 0) {
+            return bus_result_make(BUS_STATUS_OK, BUS_ACCESS_READ, addr, sizeof(uint32_t));
+        }
+
+        return bus_result_make(BUS_STATUS_UNMAPPED, BUS_ACCESS_READ, addr, sizeof(uint32_t));
+    }
+
+    result = bus_translate(bus, addr, &ptr, sizeof(uint32_t), BUS_ACCESS_READ);
     if (result.status != BUS_STATUS_OK) {
         return result;
     }
@@ -132,7 +162,22 @@ bus_result_t bus_write16(bus_t *bus, uint32_t addr, uint16_t value) {
 
 bus_result_t bus_write32(bus_t *bus, uint32_t addr, uint32_t value) {
     uint8_t *ptr = NULL;
-    bus_result_t result = bus_translate(bus, addr, &ptr, sizeof(uint32_t), BUS_ACCESS_WRITE);
+    bus_result_t result;
+    uint32_t offset = 0;
+
+    if (bus_is_unaligned(addr, sizeof(uint32_t))) {
+        return bus_result_make(BUS_STATUS_UNALIGNED, BUS_ACCESS_WRITE, addr, sizeof(uint32_t));
+    }
+
+    if (bus != NULL && bus->tim2 != NULL && bus_tim2_offset(addr, &offset)) {
+        if (tim2_write32(bus->tim2, offset, value) == 0) {
+            return bus_result_make(BUS_STATUS_OK, BUS_ACCESS_WRITE, addr, sizeof(uint32_t));
+        }
+
+        return bus_result_make(BUS_STATUS_UNMAPPED, BUS_ACCESS_WRITE, addr, sizeof(uint32_t));
+    }
+
+    result = bus_translate(bus, addr, &ptr, sizeof(uint32_t), BUS_ACCESS_WRITE);
 
     if (result.status != BUS_STATUS_OK) {
         return result;

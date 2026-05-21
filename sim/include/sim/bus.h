@@ -6,6 +6,8 @@
 
 #include "sim/memory.h"
 
+typedef struct tim2 tim2_t;
+
 typedef enum bus_status {
     BUS_STATUS_OK = 0,
     BUS_STATUS_UNMAPPED,
@@ -27,9 +29,10 @@ typedef struct bus_result {
 
 typedef struct bus {
     memory_t *memory;
+    tim2_t *tim2;
 } bus_t;
 
-void bus_init(bus_t *bus, memory_t *memory);
+void bus_init(bus_t *bus, memory_t *memory, tim2_t *tim2);
 bus_result_t bus_read8(bus_t *bus, uint32_t addr, uint8_t *value);
 bus_result_t bus_read16(bus_t *bus, uint32_t addr, uint16_t *value);
 bus_result_t bus_read32(bus_t *bus, uint32_t addr, uint32_t *value);

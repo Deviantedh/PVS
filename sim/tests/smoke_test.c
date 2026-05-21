@@ -54,6 +54,10 @@ static uint16_t encode_ldrh_imm(uint8_t rt, uint8_t rn, uint8_t imm5) {
     return (uint16_t)(0x8800u | ((uint16_t)(imm5 & 0x1Fu) << 6) | ((uint16_t)(rn & 0x7u) << 3) | (rt & 0x7u));
 }
 
+static uint16_t encode_str_imm(uint8_t rt, uint8_t rn, uint8_t imm5) {
+    return (uint16_t)(0x6000u | ((uint16_t)(imm5 & 0x1Fu) << 6) | ((uint16_t)(rn & 0x7u) << 3) | (rt & 0x7u));
+}
+
 static int test_reset_sequence(void) {
     sim_t sim;
     uint8_t firmware[16] = {0};
@@ -1430,6 +1434,172 @@ static int test_tim2_ticks_during_sim_step(void) {
     return 0;
 }
 
+static int test_tim2_mmio_read_write_registers(void) {
+    sim_t sim;
+    uint32_t value = 0;
+
+    if (sim_init(&sim, NULL) != 0) {
+        return 1;
+    }
+
+    if (!bus_result_is_ok(bus_write32(&sim.bus, TIM2_BASE + TIM2_CR1_OFFSET, TIM2_CR1_CEN))
+        || !bus_result_is_ok(bus_write32(&sim.bus, TIM2_BASE + TIM2_PSC_OFFSET, 7u))
+        || !bus_result_is_ok(bus_write32(&sim.bus, TIM2_BASE + TIM2_ARR_OFFSET, 42u))
+        || !bus_result_is_ok(bus_write32(&sim.bus, TIM2_BASE + TIM2_DIER_OFFSET, TIM2_DIER_UIE))) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (!bus_result_is_ok(bus_read32(&sim.bus, TIM2_BASE + TIM2_CR1_OFFSET, &value)) || value != TIM2_CR1_CEN) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (!bus_result_is_ok(bus_read32(&sim.bus, TIM2_BASE + TIM2_PSC_OFFSET, &value)) || value != 7u) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (!bus_result_is_ok(bus_read32(&sim.bus, TIM2_BASE + TIM2_ARR_OFFSET, &value)) || value != 42u) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (!bus_result_is_ok(bus_read32(&sim.bus, TIM2_BASE + TIM2_DIER_OFFSET, &value)) || value != TIM2_DIER_UIE) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    sim_destroy(&sim);
+    return 0;
+}
+
+static int test_tim2_ticks_after_mmio_configuration(void) {
+    sim_t sim;
+
+    if (sim_init(&sim, NULL) != 0) {
+        return 1;
+    }
+
+    if (!bus_result_is_ok(bus_write32(&sim.bus, TIM2_BASE + TIM2_ARR_OFFSET, 10u))
+        || !bus_result_is_ok(bus_write32(&sim.bus, TIM2_BASE + TIM2_CR1_OFFSET, TIM2_CR1_CEN))) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    tim2_tick(&sim.tim2, &sim.nvic, 4u);
+    if (sim.tim2.cnt != 4u) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    sim_destroy(&sim);
+    return 0;
+}
+
+static int test_tim2_mmio_overflow_sets_pending_irq(void) {
+    sim_t sim;
+    uint8_t firmware[16] = {0};
+
+    encode_u32le(&firmware[0], 0x20002000u);
+    encode_u32le(&firmware[4], SIM_FLASH_BASE + 8u + 1u);
+    encode_u16le(&firmware[8], 0xBF00u);
+    encode_u16le(&firmware[10], 0xBF00u);
+
+    if (sim_init(&sim, NULL) != 0) {
+        return 1;
+    }
+
+    if (sim_load_firmware(&sim, firmware, sizeof(firmware)) != 0 || sim_reset(&sim) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (!bus_result_is_ok(bus_write32(&sim.bus, TIM2_BASE + TIM2_ARR_OFFSET, 1u))
+        || !bus_result_is_ok(bus_write32(&sim.bus, TIM2_BASE + TIM2_DIER_OFFSET, TIM2_DIER_UIE))
+        || !bus_result_is_ok(bus_write32(&sim.bus, TIM2_BASE + TIM2_CR1_OFFSET, TIM2_CR1_CEN))) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (sim_step(&sim) != SIM_STOP_NONE || nvic_is_pending(&sim.nvic, TIM2_IRQ_NUMBER) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (sim_step(&sim) != SIM_STOP_NONE || nvic_is_pending(&sim.nvic, TIM2_IRQ_NUMBER) == 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    sim_destroy(&sim);
+    return 0;
+}
+
+static int test_tim2_unmapped_mmio_address(void) {
+    sim_t sim;
+    uint32_t value = 0;
+    bus_result_t result;
+
+    if (sim_init(&sim, NULL) != 0) {
+        return 1;
+    }
+
+    result = bus_write32(&sim.bus, TIM2_BASE + 0x400u, 1u);
+    if (result.status != BUS_STATUS_UNMAPPED) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    result = bus_read32(&sim.bus, TIM2_BASE + 0x400u, &value);
+    if (result.status != BUS_STATUS_UNMAPPED) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    sim_destroy(&sim);
+    return 0;
+}
+
+static int test_tim2_configured_by_firmware_str_mmio(void) {
+    sim_t sim;
+    uint8_t firmware[32] = {0};
+
+    encode_u32le(&firmware[0], 0x20002000u);
+    encode_u32le(&firmware[4], SIM_FLASH_BASE + 8u + 1u);
+    encode_u16le(&firmware[8], 0x4903u);
+    encode_u16le(&firmware[10], 0x200Au);
+    encode_u16le(&firmware[12], encode_str_imm(0u, 1u, TIM2_ARR_OFFSET / 4u));
+    encode_u16le(&firmware[14], 0x2001u);
+    encode_u16le(&firmware[16], encode_str_imm(0u, 1u, TIM2_CR1_OFFSET / 4u));
+    encode_u16le(&firmware[18], 0xBF00u);
+    encode_u32le(&firmware[24], TIM2_BASE);
+
+    if (sim_init(&sim, NULL) != 0) {
+        return 1;
+    }
+
+    if (sim_load_firmware(&sim, firmware, sizeof(firmware)) != 0 || sim_reset(&sim) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    for (int i = 0; i < 6; ++i) {
+        if (sim_step(&sim) != SIM_STOP_NONE) {
+            sim_destroy(&sim);
+            return 1;
+        }
+    }
+
+    if (sim.tim2.arr != 10u || (sim.tim2.cr1 & TIM2_CR1_CEN) == 0u || sim.tim2.cnt != 1u) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    sim_destroy(&sim);
+    return 0;
+}
+
 int main(void) {
 #define RUN_TEST(fn) \
     do { \
@@ -1479,6 +1649,11 @@ int main(void) {
     RUN_TEST(test_tim2_overflow_sets_pending_when_uie_enabled);
     RUN_TEST(test_tim2_overflow_does_not_set_pending_when_uie_disabled);
     RUN_TEST(test_tim2_ticks_during_sim_step);
+    RUN_TEST(test_tim2_mmio_read_write_registers);
+    RUN_TEST(test_tim2_ticks_after_mmio_configuration);
+    RUN_TEST(test_tim2_mmio_overflow_sets_pending_irq);
+    RUN_TEST(test_tim2_unmapped_mmio_address);
+    RUN_TEST(test_tim2_configured_by_firmware_str_mmio);
 
 #undef RUN_TEST
 
