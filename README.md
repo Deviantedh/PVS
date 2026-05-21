@@ -33,6 +33,24 @@
 - `TIM2`: `CR1`, `PSC`, `ARR`, `CNT`, `DIER`, `SR`, update IRQ
 - `USART1`: `SR`, `DR`, `BRR`, `CR1`, TX output buffer
 
+## Go service
+
+В `service/` добавлен базовый микросервис-раннер:
+
+- принимает job JSON (`job_id`, `firmware` base64, `config`)
+- декодирует firmware во временный файл
+- запускает симулятор как subprocess
+- передаёт CLI-контракт `--firmware`, `--max-instr`, `--timeout-ms`, `--uart-in`, `--json-result`
+- возвращает result JSON
+
+Текущий C CLI поддерживает этот контракт для запуска raw firmware и выдачи `uart_output`/`json-result`. `--timeout-ms` и `--uart-in` пока принимаются как часть контракта; фактический RX/timeout enforcement остаются отдельными задачами.
+
+Пример запуска:
+
+```sh
+go run ./service/cmd/pvs-runner --simulator ./build-ninja/sim/pvs_sim_cli --job job.json
+```
+
 ## Статус
 
 Текущее состояние проекта — рабочий MVP симулятора:

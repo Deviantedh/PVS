@@ -6,67 +6,31 @@
 
 #include "sim/sim.h"
 
-enum {
-    CLI_DEFAULT_MAX_STEPS = 100000u
-};
+typedef struct cli_options {
+    const char *firmware_path;
+    const char *uart_in;
+    const char *uart_out_path;
+    const char *json_result_path;
+    uint64_t max_instructions;
+    uint32_t timeout_ms;
+} cli_options_t;
 
-static const char *stop_reason_name(sim_stop_reason_t reason) {
-    switch (reason) {
-    case SIM_STOP_NONE:
-        return "none";
-    case SIM_STOP_BREAK:
-        return "break";
-    case SIM_STOP_MAX_INSTRUCTIONS:
-        return "max_steps";
-    case SIM_STOP_UNSUPPORTED_INSTR:
-        return "unsupported_instruction";
-    case SIM_STOP_FAULT:
-        return "fault";
-    default:
-        return "unknown";
-    }
-}
-
-static const char *bus_status_name(bus_status_t status) {
-    switch (status) {
-    case BUS_STATUS_OK:
-        return "ok";
-    case BUS_STATUS_UNMAPPED:
-        return "unmapped";
-    case BUS_STATUS_UNALIGNED:
-        return "unaligned";
-    case BUS_STATUS_BAD_ARGUMENT:
-        return "bad_argument";
-    default:
-        return "unknown";
-    }
-}
-
-static const char *bus_access_name(bus_access_type_t access) {
-    switch (access) {
-    case BUS_ACCESS_READ:
-        return "read";
-    case BUS_ACCESS_WRITE:
-        return "write";
-    default:
-        return "unknown";
-    }
-}
-
-static void print_usage(const char *argv0) {
-    fprintf(stderr, "usage: %s <firmware.bin> [--max-steps N]\n", argv0);
+static void print_usage(FILE *stream) {
+    fprintf(stream,
+        "usage: pvs_sim_cli --firmware <path> [--max-instr <n>] [--timeout-ms <n>] "
+        "[--uart-in <string>] [--uart-out <path>] [--json-result <path>]\n");
 }
 
 static int parse_u64(const char *text, uint64_t *value) {
     char *end = NULL;
     unsigned long long parsed;
 
-    if (text == NULL || value == NULL || text[0] == '\0') {
+    if (text == NULL || value == NULL) {
         return -1;
     }
 
     errno = 0;
-    parsed = strtoull(text, &end, 0);
+    parsed = strtoull(text, &end, 10);
     if (errno != 0 || end == text || *end != '\0') {
         return -1;
     }
@@ -75,37 +39,62 @@ static int parse_u64(const char *text, uint64_t *value) {
     return 0;
 }
 
-static int parse_args(int argc, char **argv, const char **firmware_path, uint64_t *max_steps) {
-    *firmware_path = NULL;
-    *max_steps = CLI_DEFAULT_MAX_STEPS;
+static int parse_u32(const char *text, uint32_t *value) {
+    uint64_t parsed = 0;
+
+    if (parse_u64(text, &parsed) != 0 || parsed > UINT32_MAX) {
+        return -1;
+    }
+
+    *value = (uint32_t)parsed;
+    return 0;
+}
+
+static int parse_args(int argc, char **argv, cli_options_t *options) {
+    memset(options, 0, sizeof(*options));
+    options->max_instructions = 1000000u;
+    options->timeout_ms = 5000u;
 
     for (int i = 1; i < argc; ++i) {
-        if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
-            return 1;
+        const char *arg = argv[i];
+
+        if (strcmp(arg, "--help") == 0 || strcmp(arg, "-h") == 0) {
+            print_usage(stdout);
+            exit(0);
         }
 
-        if (strcmp(argv[i], "--max-steps") == 0) {
-            if (i + 1 >= argc || parse_u64(argv[i + 1], max_steps) != 0) {
-                return -1;
-            }
-            i++;
-            continue;
-        }
-
-        if (*firmware_path != NULL) {
+        if (i + 1 >= argc) {
             return -1;
         }
 
-        *firmware_path = argv[i];
+        if (strcmp(arg, "--firmware") == 0) {
+            options->firmware_path = argv[++i];
+        } else if (strcmp(arg, "--max-instr") == 0) {
+            if (parse_u64(argv[++i], &options->max_instructions) != 0) {
+                return -1;
+            }
+        } else if (strcmp(arg, "--timeout-ms") == 0) {
+            if (parse_u32(argv[++i], &options->timeout_ms) != 0) {
+                return -1;
+            }
+        } else if (strcmp(arg, "--uart-in") == 0) {
+            options->uart_in = argv[++i];
+        } else if (strcmp(arg, "--uart-out") == 0) {
+            options->uart_out_path = argv[++i];
+        } else if (strcmp(arg, "--json-result") == 0) {
+            options->json_result_path = argv[++i];
+        } else {
+            return -1;
+        }
     }
 
-    return *firmware_path == NULL ? -1 : 0;
+    return options->firmware_path != NULL ? 0 : -1;
 }
 
-static int load_file(const char *path, uint8_t **data, size_t *size) {
-    FILE *file;
-    long file_size;
-    uint8_t *buffer;
+static int read_file(const char *path, uint8_t **data, size_t *size) {
+    FILE *file = NULL;
+    long length = 0;
+    uint8_t *buffer = NULL;
 
     if (path == NULL || data == NULL || size == NULL) {
         return -1;
@@ -121,8 +110,8 @@ static int load_file(const char *path, uint8_t **data, size_t *size) {
         return -1;
     }
 
-    file_size = ftell(file);
-    if (file_size < 0) {
+    length = ftell(file);
+    if (length < 0) {
         fclose(file);
         return -1;
     }
@@ -132,13 +121,13 @@ static int load_file(const char *path, uint8_t **data, size_t *size) {
         return -1;
     }
 
-    buffer = malloc((size_t)file_size);
-    if (buffer == NULL && file_size != 0) {
+    buffer = malloc((size_t)length);
+    if (buffer == NULL && length != 0) {
         fclose(file);
         return -1;
     }
 
-    if (file_size != 0 && fread(buffer, 1u, (size_t)file_size, file) != (size_t)file_size) {
+    if (length != 0 && fread(buffer, 1, (size_t)length, file) != (size_t)length) {
         free(buffer);
         fclose(file);
         return -1;
@@ -146,81 +135,167 @@ static int load_file(const char *path, uint8_t **data, size_t *size) {
 
     fclose(file);
     *data = buffer;
-    *size = (size_t)file_size;
+    *size = (size_t)length;
     return 0;
 }
 
-static void print_summary(const sim_t *sim, sim_stop_reason_t reason, uint64_t max_steps) {
-    printf("stop_reason: %s\n", stop_reason_name(reason));
-    printf("instructions: %llu\n", (unsigned long long)sim->cpu.instr_count);
-    printf("max_steps: %llu\n", (unsigned long long)max_steps);
-    printf("pc: 0x%08X\n", sim->cpu.pc);
-    printf("msp: 0x%08X\n", sim->cpu.msp);
-
-    if (reason == SIM_STOP_FAULT) {
-        printf(
-            "fault: status=%s access=%s addr=0x%08X width=%u\n",
-            bus_status_name(sim->last_bus_result.status),
-            bus_access_name(sim->last_bus_result.access),
-            sim->last_bus_result.addr,
-            sim->last_bus_result.width
-        );
-    }
-
-    if (sim_uart_output_size(sim) != 0u) {
-        printf("uart_output:\n");
-        fwrite(sim_uart_output_data(sim), 1u, sim_uart_output_size(sim), stdout);
-        printf("\n");
-    } else {
-        printf("uart_output: <empty>\n");
+static const char *status_from_stop(sim_stop_reason_t reason) {
+    switch (reason) {
+    case SIM_STOP_NONE:
+    case SIM_STOP_BREAK:
+    case SIM_STOP_MAX_INSTRUCTIONS:
+        return "OK";
+    case SIM_STOP_UNSUPPORTED_INSTR:
+        return "UNSUPPORTED_INSTR";
+    case SIM_STOP_FAULT:
+        return "FAULT";
+    default:
+        return "CRASH";
     }
 }
 
+static int exit_code_from_stop(sim_stop_reason_t reason) {
+    switch (reason) {
+    case SIM_STOP_NONE:
+    case SIM_STOP_BREAK:
+    case SIM_STOP_MAX_INSTRUCTIONS:
+        return 0;
+    case SIM_STOP_UNSUPPORTED_INSTR:
+        return 11;
+    case SIM_STOP_FAULT:
+        return 12;
+    default:
+        return 12;
+    }
+}
+
+static void write_json_string(FILE *file, const char *value) {
+    fputc('"', file);
+    for (const unsigned char *p = (const unsigned char *)value; p != NULL && *p != '\0'; ++p) {
+        switch (*p) {
+        case '\\':
+            fputs("\\\\", file);
+            break;
+        case '"':
+            fputs("\\\"", file);
+            break;
+        case '\n':
+            fputs("\\n", file);
+            break;
+        case '\r':
+            fputs("\\r", file);
+            break;
+        case '\t':
+            fputs("\\t", file);
+            break;
+        default:
+            if (*p < 0x20u) {
+                fprintf(file, "\\u%04x", *p);
+            } else {
+                fputc(*p, file);
+            }
+            break;
+        }
+    }
+    fputc('"', file);
+}
+
+static int write_uart_output(const cli_options_t *options, const sim_t *sim) {
+    FILE *file = stdout;
+
+    if (options->uart_out_path != NULL) {
+        file = fopen(options->uart_out_path, "wb");
+        if (file == NULL) {
+            return -1;
+        }
+    }
+
+    if (sim_uart_output_size(sim) > 0u) {
+        fwrite(sim_uart_output_data(sim), 1, sim_uart_output_size(sim), file);
+    }
+
+    if (file != stdout) {
+        fclose(file);
+    }
+    return 0;
+}
+
+static int write_json_result(const cli_options_t *options, const sim_t *sim, sim_stop_reason_t reason, int exit_code) {
+    FILE *file;
+
+    if (options->json_result_path == NULL) {
+        return 0;
+    }
+
+    file = fopen(options->json_result_path, "wb");
+    if (file == NULL) {
+        return -1;
+    }
+
+    fprintf(file, "{");
+    fprintf(file, "\"job_id\":\"\",");
+    fprintf(file, "\"status\":");
+    write_json_string(file, status_from_stop(reason));
+    fprintf(file, ",\"exit_code\":%d,", exit_code);
+    fprintf(file, "\"uart_output\":");
+    write_json_string(file, sim_uart_output_data(sim));
+    fprintf(file, ",\"instructions_executed\":%llu", (unsigned long long)sim->cpu.instr_count);
+    fprintf(file, "}\n");
+    fclose(file);
+    return 0;
+}
+
 int main(int argc, char **argv) {
-    const char *firmware_path = NULL;
-    uint64_t max_steps = 0;
+    cli_options_t options;
+    sim_config_t config = {0};
+    sim_t sim;
     uint8_t *firmware = NULL;
     size_t firmware_size = 0;
     sim_stop_reason_t reason;
-    sim_t sim;
-    int parse_result = parse_args(argc, argv, &firmware_path, &max_steps);
+    int exit_code;
 
-    if (parse_result != 0) {
-        print_usage(argv[0]);
-        return parse_result > 0 ? 0 : 2;
+    if (parse_args(argc, argv, &options) != 0) {
+        print_usage(stderr);
+        return 13;
     }
 
-    if (load_file(firmware_path, &firmware, &firmware_size) != 0) {
-        fprintf(stderr, "failed to read firmware: %s\n", firmware_path);
-        return 1;
+    (void)options.timeout_ms;
+    (void)options.uart_in;
+
+    if (read_file(options.firmware_path, &firmware, &firmware_size) != 0) {
+        fprintf(stderr, "failed to read firmware: %s\n", options.firmware_path);
+        return 13;
     }
 
-    if (sim_init(&sim, NULL) != 0) {
+    config.max_instructions = options.max_instructions;
+    if (sim_init(&sim, &config) != 0) {
+        free(firmware);
         fprintf(stderr, "failed to initialize simulator\n");
-        free(firmware);
-        return 1;
+        return 12;
     }
 
-    if (sim_load_firmware(&sim, firmware, firmware_size) != 0) {
-        fprintf(stderr, "failed to load firmware into flash\n");
+    if (sim_load_firmware(&sim, firmware, firmware_size) != 0 || sim_reset(&sim) != 0) {
+        free(firmware);
         sim_destroy(&sim);
-        free(firmware);
-        return 1;
+        fprintf(stderr, "failed to load/reset firmware\n");
+        return 13;
     }
-
     free(firmware);
 
-    if (sim_reset(&sim) != 0) {
-        fprintf(stderr, "failed to reset simulator\n");
-        print_summary(&sim, sim.stop_reason, max_steps);
+    reason = sim_run(&sim, options.max_instructions);
+    (void)sim_drain_uart_output(&sim);
+    exit_code = exit_code_from_stop(reason);
+
+    if (write_uart_output(&options, &sim) != 0) {
         sim_destroy(&sim);
-        return 1;
+        return 12;
     }
 
-    reason = sim_run(&sim, max_steps);
-    (void)sim_drain_uart_output(&sim);
-    print_summary(&sim, reason, max_steps);
+    if (write_json_result(&options, &sim, reason, exit_code) != 0) {
+        sim_destroy(&sim);
+        return 12;
+    }
 
     sim_destroy(&sim);
-    return reason == SIM_STOP_FAULT || reason == SIM_STOP_UNSUPPORTED_INSTR ? 1 : 0;
+    return exit_code;
 }

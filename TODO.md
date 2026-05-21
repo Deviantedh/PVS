@@ -27,6 +27,16 @@
 - более полная модель исключений (`SVC`, `HardFault`)
 - nested interrupts
 - дополнительные Thumb-инструкции по мере необходимости
-- Go-микросервис
+- Go-микросервис: добавить реальную KeyDB-интеграцию
 - `KeyDB`
 - `OpenTelemetry`
+
+## Выполнено
+
+- Базовый Go-микросервис:
+  - JSON job/result model
+  - subprocess runner для симулятора
+  - timeout через context
+  - CLI `pvs-runner`
+  - интерфейс queue для будущего KeyDB
+  - минимальный otel/logging слой

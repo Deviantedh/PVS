@@ -22,13 +22,13 @@
 
 ## P1 - Runner and diagnostics
 
-- [ ] Expand CLI contract: `--firmware`, `--max-instr`, `--uart-in`, `--uart-out`, `--json-result`.
+- [x] Expand CLI contract: `--firmware`, `--max-instr`, `--uart-in`, `--uart-out`, `--json-result`.
 - [ ] Add `--version`.
 - [ ] Add trace/dump-regs-on-exit option.
 - [ ] Add structured stop diagnostics for unsupported instructions and faults.
 
 ## P2 - Service
 
-- [ ] Scaffold Go microservice modules: queue, runner, model, otel.
+- [x] Scaffold Go microservice modules: queue, runner, model, otel.
 - [ ] Implement KeyDB job/result contract.
-- [ ] Add subprocess timeout handling around simulator CLI.
+- [x] Add subprocess timeout handling around simulator CLI.
