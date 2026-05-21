@@ -233,6 +233,70 @@ static cpu_step_result_t cpu_execute_thumb16(sim_t *sim, uint16_t instr) {
         return cpu_step_result_make(CPU_STEP_OK, bus_result);
     }
 
+    if ((instr & 0xF800u) == 0x7000u) {
+        uint32_t imm5 = (instr >> 6) & 0x1Fu;
+        uint32_t rn = (instr >> 3) & 0x7u;
+        uint32_t rt = instr & 0x7u;
+        uint32_t addr = sim->cpu.r[rn] + imm5;
+
+        bus_result = bus_write8(&sim->bus, addr, (uint8_t)(sim->cpu.r[rt] & 0xFFu));
+        if (!bus_result_is_ok(bus_result)) {
+            return cpu_step_result_make(CPU_STEP_FAULT, bus_result);
+        }
+
+        sim->cpu.pc += 2u;
+        return cpu_step_result_make(CPU_STEP_OK, bus_result);
+    }
+
+    if ((instr & 0xF800u) == 0x7800u) {
+        uint32_t imm5 = (instr >> 6) & 0x1Fu;
+        uint32_t rn = (instr >> 3) & 0x7u;
+        uint32_t rt = instr & 0x7u;
+        uint32_t addr = sim->cpu.r[rn] + imm5;
+        uint8_t value = 0;
+
+        bus_result = bus_read8(&sim->bus, addr, &value);
+        if (!bus_result_is_ok(bus_result)) {
+            return cpu_step_result_make(CPU_STEP_FAULT, bus_result);
+        }
+
+        sim->cpu.r[rt] = value;
+        sim->cpu.pc += 2u;
+        return cpu_step_result_make(CPU_STEP_OK, bus_result);
+    }
+
+    if ((instr & 0xF800u) == 0x8000u) {
+        uint32_t imm5 = (instr >> 6) & 0x1Fu;
+        uint32_t rn = (instr >> 3) & 0x7u;
+        uint32_t rt = instr & 0x7u;
+        uint32_t addr = sim->cpu.r[rn] + (imm5 << 1);
+
+        bus_result = bus_write16(&sim->bus, addr, (uint16_t)(sim->cpu.r[rt] & 0xFFFFu));
+        if (!bus_result_is_ok(bus_result)) {
+            return cpu_step_result_make(CPU_STEP_FAULT, bus_result);
+        }
+
+        sim->cpu.pc += 2u;
+        return cpu_step_result_make(CPU_STEP_OK, bus_result);
+    }
+
+    if ((instr & 0xF800u) == 0x8800u) {
+        uint32_t imm5 = (instr >> 6) & 0x1Fu;
+        uint32_t rn = (instr >> 3) & 0x7u;
+        uint32_t rt = instr & 0x7u;
+        uint32_t addr = sim->cpu.r[rn] + (imm5 << 1);
+        uint16_t value = 0;
+
+        bus_result = bus_read16(&sim->bus, addr, &value);
+        if (!bus_result_is_ok(bus_result)) {
+            return cpu_step_result_make(CPU_STEP_FAULT, bus_result);
+        }
+
+        sim->cpu.r[rt] = value;
+        sim->cpu.pc += 2u;
+        return cpu_step_result_make(CPU_STEP_OK, bus_result);
+    }
+
     if ((instr & 0xF800u) == 0xE000u) {
         int32_t offset = ((int32_t)(instr & 0x07FFu) << 21) >> 20;
 

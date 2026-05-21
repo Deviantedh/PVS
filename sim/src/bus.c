@@ -53,6 +53,22 @@ void bus_init(bus_t *bus, memory_t *memory) {
     bus->memory = memory;
 }
 
+bus_result_t bus_read8(bus_t *bus, uint32_t addr, uint8_t *value) {
+    uint8_t *ptr = NULL;
+    bus_result_t result = bus_translate(bus, addr, &ptr, sizeof(uint8_t), BUS_ACCESS_READ);
+
+    if (value == NULL) {
+        return bus_result_make(BUS_STATUS_BAD_ARGUMENT, BUS_ACCESS_READ, addr, sizeof(uint8_t));
+    }
+
+    if (result.status != BUS_STATUS_OK) {
+        return result;
+    }
+
+    *value = ptr[0];
+    return result;
+}
+
 bus_result_t bus_read16(bus_t *bus, uint32_t addr, uint16_t *value) {
     uint8_t *ptr = NULL;
     bus_result_t result = bus_translate(bus, addr, &ptr, sizeof(uint16_t), BUS_ACCESS_READ);
@@ -86,6 +102,31 @@ bus_result_t bus_read32(bus_t *bus, uint32_t addr, uint32_t *value) {
         | ((uint32_t)ptr[1] << 8)
         | ((uint32_t)ptr[2] << 16)
         | ((uint32_t)ptr[3] << 24);
+    return result;
+}
+
+bus_result_t bus_write8(bus_t *bus, uint32_t addr, uint8_t value) {
+    uint8_t *ptr = NULL;
+    bus_result_t result = bus_translate(bus, addr, &ptr, sizeof(uint8_t), BUS_ACCESS_WRITE);
+
+    if (result.status != BUS_STATUS_OK) {
+        return result;
+    }
+
+    ptr[0] = value;
+    return result;
+}
+
+bus_result_t bus_write16(bus_t *bus, uint32_t addr, uint16_t value) {
+    uint8_t *ptr = NULL;
+    bus_result_t result = bus_translate(bus, addr, &ptr, sizeof(uint16_t), BUS_ACCESS_WRITE);
+
+    if (result.status != BUS_STATUS_OK) {
+        return result;
+    }
+
+    ptr[0] = (uint8_t)(value & 0xFFu);
+    ptr[1] = (uint8_t)((value >> 8) & 0xFFu);
     return result;
 }
 

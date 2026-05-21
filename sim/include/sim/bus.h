@@ -30,8 +30,11 @@ typedef struct bus {
 } bus_t;
 
 void bus_init(bus_t *bus, memory_t *memory);
+bus_result_t bus_read8(bus_t *bus, uint32_t addr, uint8_t *value);
 bus_result_t bus_read16(bus_t *bus, uint32_t addr, uint16_t *value);
 bus_result_t bus_read32(bus_t *bus, uint32_t addr, uint32_t *value);
+bus_result_t bus_write8(bus_t *bus, uint32_t addr, uint8_t value);
+bus_result_t bus_write16(bus_t *bus, uint32_t addr, uint16_t value);
 bus_result_t bus_write32(bus_t *bus, uint32_t addr, uint32_t value);
 int bus_result_is_ok(bus_result_t result);
 int bus_tick(bus_t *bus, uint32_t ticks);
