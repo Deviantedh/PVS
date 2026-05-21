@@ -113,7 +113,7 @@
 |---|---|---:|---:|---|---|
 | Move/Compare | MOV, MOVS, CMP, CMN, TST | ✅ | ✅ | CMP/TST обязаны правильно ставить флаги; часть минимального набора | UT |
 | Add/Sub basic | ADD, ADDS, SUB, SUBS | ✅ | ✅ | обработка carry/overflow для флагов; часть минимального набора | UT |
-| Logical | AND, ORR, EOR, BIC, MVN | ⏳ | ✅ | флаги N/Z; C зависит от шифтов (см. shifts) | UT |
+| Logical | AND, ORR, EOR, BIC, MVN | 🟨 | ✅ | AND/ORR/EOR реализованы; BIC/MVN позже; флаги N/Z | UT |
 | ADC/SBC/RSB | ADC, SBC, RSB | ❌ | ⏳ | часто встречается при оптимизациях | UT |
 | Saturating/DSP | QADD/QSUB и т.п. | ❌ | ❌ | не требуется для Cortex‑M3 базового курса | — |
 

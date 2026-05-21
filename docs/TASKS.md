@@ -8,7 +8,7 @@
 
 - [x] Реализовать `PUSH` / `POP` Thumb16 для `R0-R7`, `LR`, `PC`.
 - [x] Реализовать минимальный `BL` Thumb-2 и 32-bit fetch path для вызовов.
-- [ ] Реализовать базовые logical Thumb16: `AND`, `ORR`, `EOR`.
+- [x] Реализовать базовые logical Thumb16: `AND`, `ORR`, `EOR`.
 - [ ] Реализовать базовые shifts Thumb16: `LSL`, `LSR`, `ASR`.
 - [ ] Реализовать `SVC` как контролируемый exception/stop path.
 - [ ] Синхронизировать статусы `CPU_ISA_COVERAGE.md` с фактической реализацией.
