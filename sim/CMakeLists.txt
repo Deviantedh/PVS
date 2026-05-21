@@ -5,6 +5,7 @@ set(SIM_PUBLIC_HEADERS
     include/sim/nvic.h
     include/sim/sim.h
     include/sim/tim2.h
+    include/sim/usart1.h
 )
 
 set(SIM_SOURCES
@@ -14,6 +15,7 @@ set(SIM_SOURCES
     src/cpu/cpu.c
     src/devices/nvic.c
     src/devices/tim2.c
+    src/devices/usart1.c
     src/devices/stub.c
     src/util/log.c
 )

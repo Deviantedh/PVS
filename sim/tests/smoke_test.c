@@ -3,6 +3,7 @@
 #include <stdio.h>
 
 #include "sim/sim.h"
+#include "sim/usart1.h"
 
 static void encode_u32le(uint8_t *dst, uint32_t value) {
     dst[0] = (uint8_t)(value & 0xFFu);
@@ -1809,6 +1810,111 @@ static int test_irq_bad_vector_faults_controlled(void) {
     return 0;
 }
 
+static int test_usart1_reset_state(void) {
+    usart1_t usart;
+    uint32_t value = 0;
+
+    usart1_init(&usart);
+
+    if (usart.sr != USART1_SR_TXE || usart.dr != 0u || usart.brr != 0u || usart.cr1 != 0u) {
+        return 1;
+    }
+
+    if (usart1_tx_available(&usart) != 0u) {
+        return 1;
+    }
+
+    if (usart1_read32(&usart, USART1_SR_OFFSET, &value) != 0 || value != USART1_SR_TXE) {
+        return 1;
+    }
+
+    return 0;
+}
+
+static int test_usart1_dr_write_without_ue_or_te_does_not_transmit(void) {
+    usart1_t usart;
+
+    usart1_init(&usart);
+
+    if (usart1_write32(&usart, USART1_DR_OFFSET, 'A') != 0 || usart1_tx_available(&usart) != 0u) {
+        return 1;
+    }
+
+    if (usart1_write32(&usart, USART1_CR1_OFFSET, USART1_CR1_UE) != 0
+        || usart1_write32(&usart, USART1_DR_OFFSET, 'B') != 0
+        || usart1_tx_available(&usart) != 0u) {
+        return 1;
+    }
+
+    if (usart1_write32(&usart, USART1_CR1_OFFSET, USART1_CR1_TE) != 0
+        || usart1_write32(&usart, USART1_DR_OFFSET, 'C') != 0
+        || usart1_tx_available(&usart) != 0u) {
+        return 1;
+    }
+
+    return 0;
+}
+
+static int test_usart1_dr_write_with_ue_and_te_transmits_byte(void) {
+    usart1_t usart;
+    uint8_t byte = 0;
+
+    usart1_init(&usart);
+
+    if (usart1_write32(&usart, USART1_CR1_OFFSET, USART1_CR1_UE | USART1_CR1_TE) != 0
+        || usart1_write32(&usart, USART1_DR_OFFSET, 'Z') != 0) {
+        return 1;
+    }
+
+    if (usart1_tx_available(&usart) != 1u || usart1_tx_pop(&usart, &byte) != 0 || byte != 'Z') {
+        return 1;
+    }
+
+    return usart1_tx_available(&usart) == 0u ? 0 : 1;
+}
+
+static int test_usart1_txe_stays_set_in_minimal_model(void) {
+    usart1_t usart;
+    uint32_t value = 0;
+
+    usart1_init(&usart);
+
+    if (usart1_write32(&usart, USART1_CR1_OFFSET, USART1_CR1_UE | USART1_CR1_TE) != 0
+        || usart1_write32(&usart, USART1_DR_OFFSET, 'X') != 0
+        || usart1_read32(&usart, USART1_SR_OFFSET, &value) != 0) {
+        return 1;
+    }
+
+    return (value & USART1_SR_TXE) != 0u ? 0 : 1;
+}
+
+static int test_usart1_tx_output_fifo_order(void) {
+    usart1_t usart;
+    uint8_t byte = 0;
+
+    usart1_init(&usart);
+
+    if (usart1_write32(&usart, USART1_CR1_OFFSET, USART1_CR1_UE | USART1_CR1_TE) != 0
+        || usart1_write32(&usart, USART1_DR_OFFSET, 'O') != 0
+        || usart1_write32(&usart, USART1_DR_OFFSET, 'K') != 0) {
+        return 1;
+    }
+
+    if (usart1_tx_available(&usart) != 2u) {
+        return 1;
+    }
+
+    if (usart1_tx_pop(&usart, &byte) != 0 || byte != 'O') {
+        return 1;
+    }
+
+    if (usart1_tx_pop(&usart, &byte) != 0 || byte != 'K') {
+        return 1;
+    }
+
+    return usart1_tx_pop(&usart, &byte) != 0 ? 0 : 1;
+}
+
 int main(void) {
 #define RUN_TEST(fn) \
     do { \
@@ -1868,6 +1974,11 @@ int main(void) {
     RUN_TEST(test_irq_return_resumes_thread_execution);
     RUN_TEST(test_irq_disabled_does_not_enter_handler);
     RUN_TEST(test_irq_bad_vector_faults_controlled);
+    RUN_TEST(test_usart1_reset_state);
+    RUN_TEST(test_usart1_dr_write_without_ue_or_te_does_not_transmit);
+    RUN_TEST(test_usart1_dr_write_with_ue_and_te_transmits_byte);
+    RUN_TEST(test_usart1_txe_stays_set_in_minimal_model);
+    RUN_TEST(test_usart1_tx_output_fifo_order);
 
 #undef RUN_TEST
 
