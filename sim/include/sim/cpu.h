@@ -9,6 +9,10 @@
 #define CPU_XPSR_Z_MASK 0x40000000u
 #define CPU_XPSR_C_MASK 0x20000000u
 #define CPU_XPSR_V_MASK 0x10000000u
+#define CPU_XPSR_EXCEPTION_MASK 0x000001FFu
+
+#define CPU_EXC_RETURN_THREAD_MSP 0xFFFFFFF9u
+#define CPU_EXTERNAL_EXCEPTION_BASE 16u
 
 typedef struct cpu_state {
     uint32_t r[13];
@@ -21,6 +25,8 @@ typedef struct cpu_state {
     uint32_t basepri;
     uint64_t instr_count;
     uint32_t last_pc;
+    uint32_t active_exception;
+    int handler_mode;
 } cpu_state_t;
 
 typedef enum cpu_step_status {
@@ -38,5 +44,6 @@ struct sim;
 
 void cpu_state_reset(cpu_state_t *cpu);
 cpu_step_result_t cpu_step(struct sim *sim);
+cpu_step_result_t cpu_deliver_irq(struct sim *sim, int irq);
 
 #endif

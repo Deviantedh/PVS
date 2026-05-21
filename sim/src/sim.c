@@ -140,6 +140,22 @@ sim_stop_reason_t sim_step(sim_t *sim) {
         return sim->stop_reason;
     }
 
+    if (!sim->cpu.handler_mode && sim->cpu.primask == 0u) {
+        int irq = nvic_select_next(&sim->nvic);
+
+        if (irq != NVIC_NO_IRQ) {
+            cpu_result = cpu_deliver_irq(sim, irq);
+            sim->last_bus_result = cpu_result.bus_result;
+            if (cpu_result.status == CPU_STEP_FAULT) {
+                return sim_stop_with_bus(sim, cpu_result.bus_result);
+            }
+            if (cpu_result.status == CPU_STEP_UNSUPPORTED) {
+                sim->stop_reason = SIM_STOP_UNSUPPORTED_INSTR;
+                return sim->stop_reason;
+            }
+        }
+    }
+
     if (sim->config.max_instructions != 0 && sim->cpu.instr_count >= sim->config.max_instructions) {
         sim->stop_reason = SIM_STOP_MAX_INSTRUCTIONS;
         return sim->stop_reason;

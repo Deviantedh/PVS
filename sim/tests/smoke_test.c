@@ -58,6 +58,10 @@ static uint16_t encode_str_imm(uint8_t rt, uint8_t rn, uint8_t imm5) {
     return (uint16_t)(0x6000u | ((uint16_t)(imm5 & 0x1Fu) << 6) | ((uint16_t)(rn & 0x7u) << 3) | (rt & 0x7u));
 }
 
+static uint16_t encode_bx_lr(void) {
+    return 0x4770u;
+}
+
 static int test_reset_sequence(void) {
     sim_t sim;
     uint8_t firmware[16] = {0};
@@ -1600,6 +1604,211 @@ static int test_tim2_configured_by_firmware_str_mmio(void) {
     return 0;
 }
 
+static int test_irq_delivery_jumps_to_vector_handler(void) {
+    sim_t sim;
+    uint8_t firmware[256] = {0};
+    uint32_t handler_addr = SIM_FLASH_BASE + 192u + 1u;
+
+    encode_u32le(&firmware[0], SIM_SRAM_BASE + 0x100u);
+    encode_u32le(&firmware[4], SIM_FLASH_BASE + 8u + 1u);
+    encode_u32le(&firmware[(CPU_EXTERNAL_EXCEPTION_BASE + TIM2_IRQ_NUMBER) * 4u], handler_addr);
+    encode_u16le(&firmware[8], 0xBF00u);
+    encode_u16le(&firmware[192], encode_bx_lr());
+
+    if (sim_init(&sim, NULL) != 0) {
+        return 1;
+    }
+
+    if (sim_load_firmware(&sim, firmware, sizeof(firmware)) != 0 || sim_reset(&sim) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (nvic_enable_irq(&sim.nvic, TIM2_IRQ_NUMBER) != 0 || nvic_set_pending(&sim.nvic, TIM2_IRQ_NUMBER) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (sim_step(&sim) != SIM_STOP_NONE) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (sim.cpu.pc != handler_addr || !sim.cpu.handler_mode || sim.cpu.active_exception != CPU_EXTERNAL_EXCEPTION_BASE + TIM2_IRQ_NUMBER) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    sim_destroy(&sim);
+    return 0;
+}
+
+static int test_irq_entry_writes_stack_frame(void) {
+    sim_t sim;
+    uint8_t firmware[256] = {0};
+    uint32_t handler_addr = SIM_FLASH_BASE + 192u + 1u;
+    uint32_t frame_base = SIM_SRAM_BASE + 0x100u - 32u;
+    uint32_t value = 0;
+
+    encode_u32le(&firmware[0], SIM_SRAM_BASE + 0x100u);
+    encode_u32le(&firmware[4], SIM_FLASH_BASE + 8u + 1u);
+    encode_u32le(&firmware[(CPU_EXTERNAL_EXCEPTION_BASE + TIM2_IRQ_NUMBER) * 4u], handler_addr);
+    encode_u16le(&firmware[8], 0xBF00u);
+    encode_u16le(&firmware[192], encode_bx_lr());
+
+    if (sim_init(&sim, NULL) != 0) {
+        return 1;
+    }
+
+    if (sim_load_firmware(&sim, firmware, sizeof(firmware)) != 0 || sim_reset(&sim) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    sim.cpu.r[0] = 0x11111111u;
+    sim.cpu.r[1] = 0x22222222u;
+    sim.cpu.r[2] = 0x33333333u;
+    sim.cpu.r[3] = 0x44444444u;
+    sim.cpu.r[12] = 0xCCCCCCCCu;
+    sim.cpu.lr = 0xAAAAAAAAu;
+
+    if (nvic_enable_irq(&sim.nvic, TIM2_IRQ_NUMBER) != 0 || nvic_set_pending(&sim.nvic, TIM2_IRQ_NUMBER) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (sim_step(&sim) != SIM_STOP_NONE || sim.cpu.msp != frame_base) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (!bus_result_is_ok(bus_read32(&sim.bus, frame_base + 0u, &value)) || value != 0x11111111u
+        || !bus_result_is_ok(bus_read32(&sim.bus, frame_base + 4u, &value)) || value != 0x22222222u
+        || !bus_result_is_ok(bus_read32(&sim.bus, frame_base + 8u, &value)) || value != 0x33333333u
+        || !bus_result_is_ok(bus_read32(&sim.bus, frame_base + 12u, &value)) || value != 0x44444444u
+        || !bus_result_is_ok(bus_read32(&sim.bus, frame_base + 16u, &value)) || value != 0xCCCCCCCCu
+        || !bus_result_is_ok(bus_read32(&sim.bus, frame_base + 20u, &value)) || value != 0xAAAAAAAAu
+        || !bus_result_is_ok(bus_read32(&sim.bus, frame_base + 24u, &value)) || value != SIM_FLASH_BASE + 10u + 1u
+        || !bus_result_is_ok(bus_read32(&sim.bus, frame_base + 28u, &value)) || value != 0x01000000u) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    sim_destroy(&sim);
+    return 0;
+}
+
+static int test_irq_return_resumes_thread_execution(void) {
+    sim_t sim;
+    uint8_t firmware[256] = {0};
+    uint32_t handler_addr = SIM_FLASH_BASE + 192u + 1u;
+
+    encode_u32le(&firmware[0], SIM_SRAM_BASE + 0x100u);
+    encode_u32le(&firmware[4], SIM_FLASH_BASE + 8u + 1u);
+    encode_u32le(&firmware[(CPU_EXTERNAL_EXCEPTION_BASE + TIM2_IRQ_NUMBER) * 4u], handler_addr);
+    encode_u16le(&firmware[8], 0xBF00u);
+    encode_u16le(&firmware[10], 0x2007u);
+    encode_u16le(&firmware[192], encode_bx_lr());
+
+    if (sim_init(&sim, NULL) != 0) {
+        return 1;
+    }
+
+    if (sim_load_firmware(&sim, firmware, sizeof(firmware)) != 0 || sim_reset(&sim) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (nvic_enable_irq(&sim.nvic, TIM2_IRQ_NUMBER) != 0 || nvic_set_pending(&sim.nvic, TIM2_IRQ_NUMBER) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (sim_step(&sim) != SIM_STOP_NONE || sim.cpu.pc != handler_addr) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (sim_step(&sim) != SIM_STOP_NONE || sim.cpu.handler_mode || sim.cpu.pc != SIM_FLASH_BASE + 10u + 1u) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (sim_step(&sim) != SIM_STOP_NONE || sim.cpu.r[0] != 7u) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    sim_destroy(&sim);
+    return 0;
+}
+
+static int test_irq_disabled_does_not_enter_handler(void) {
+    sim_t sim;
+    uint8_t firmware[256] = {0};
+    uint32_t handler_addr = SIM_FLASH_BASE + 192u + 1u;
+
+    encode_u32le(&firmware[0], SIM_SRAM_BASE + 0x100u);
+    encode_u32le(&firmware[4], SIM_FLASH_BASE + 8u + 1u);
+    encode_u32le(&firmware[(CPU_EXTERNAL_EXCEPTION_BASE + TIM2_IRQ_NUMBER) * 4u], handler_addr);
+    encode_u16le(&firmware[8], 0xBF00u);
+    encode_u16le(&firmware[192], encode_bx_lr());
+
+    if (sim_init(&sim, NULL) != 0) {
+        return 1;
+    }
+
+    if (sim_load_firmware(&sim, firmware, sizeof(firmware)) != 0 || sim_reset(&sim) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (nvic_set_pending(&sim.nvic, TIM2_IRQ_NUMBER) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (sim_step(&sim) != SIM_STOP_NONE || sim.cpu.pc != SIM_FLASH_BASE + 10u + 1u || sim.cpu.handler_mode) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    sim_destroy(&sim);
+    return 0;
+}
+
+static int test_irq_bad_vector_faults_controlled(void) {
+    sim_t sim;
+    uint8_t firmware[256] = {0};
+
+    encode_u32le(&firmware[0], SIM_SRAM_BASE + 0x100u);
+    encode_u32le(&firmware[4], SIM_FLASH_BASE + 8u + 1u);
+    encode_u32le(&firmware[(CPU_EXTERNAL_EXCEPTION_BASE + TIM2_IRQ_NUMBER) * 4u], SIM_FLASH_BASE + 192u);
+    encode_u16le(&firmware[8], 0xBF00u);
+
+    if (sim_init(&sim, NULL) != 0) {
+        return 1;
+    }
+
+    if (sim_load_firmware(&sim, firmware, sizeof(firmware)) != 0 || sim_reset(&sim) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (nvic_enable_irq(&sim.nvic, TIM2_IRQ_NUMBER) != 0 || nvic_set_pending(&sim.nvic, TIM2_IRQ_NUMBER) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (sim_step(&sim) != SIM_STOP_FAULT || sim.last_bus_result.status != BUS_STATUS_UNALIGNED) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    sim_destroy(&sim);
+    return 0;
+}
+
 int main(void) {
 #define RUN_TEST(fn) \
     do { \
@@ -1654,6 +1863,11 @@ int main(void) {
     RUN_TEST(test_tim2_mmio_overflow_sets_pending_irq);
     RUN_TEST(test_tim2_unmapped_mmio_address);
     RUN_TEST(test_tim2_configured_by_firmware_str_mmio);
+    RUN_TEST(test_irq_delivery_jumps_to_vector_handler);
+    RUN_TEST(test_irq_entry_writes_stack_frame);
+    RUN_TEST(test_irq_return_resumes_thread_execution);
+    RUN_TEST(test_irq_disabled_does_not_enter_handler);
+    RUN_TEST(test_irq_bad_vector_faults_controlled);
 
 #undef RUN_TEST
 

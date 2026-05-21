@@ -81,11 +81,73 @@ static int cpu_condition_passed(const cpu_state_t *cpu, uint32_t condition) {
     }
 }
 
+static int cpu_is_exc_return(uint32_t value) {
+    return value == CPU_EXC_RETURN_THREAD_MSP;
+}
+
+static cpu_step_result_t cpu_exception_return(sim_t *sim) {
+    bus_result_t bus_result = {0};
+    uint32_t sp;
+    uint32_t stacked[8];
+
+    if (sim == NULL || !sim->cpu.handler_mode || !cpu_is_exc_return(sim->cpu.lr)) {
+        return cpu_step_result_make(CPU_STEP_UNSUPPORTED, bus_result);
+    }
+
+    sp = sim->cpu.msp;
+    for (uint32_t i = 0; i < 8u; ++i) {
+        bus_result = bus_read32(&sim->bus, sp + (i * 4u), &stacked[i]);
+        if (!bus_result_is_ok(bus_result)) {
+            return cpu_step_result_make(CPU_STEP_FAULT, bus_result);
+        }
+    }
+
+    sim->cpu.r[0] = stacked[0];
+    sim->cpu.r[1] = stacked[1];
+    sim->cpu.r[2] = stacked[2];
+    sim->cpu.r[3] = stacked[3];
+    sim->cpu.r[12] = stacked[4];
+    sim->cpu.lr = stacked[5];
+    sim->cpu.pc = stacked[6];
+    sim->cpu.xpsr = stacked[7] & ~CPU_XPSR_EXCEPTION_MASK;
+    sim->cpu.msp = sp + 32u;
+    sim->cpu.active_exception = 0;
+    sim->cpu.handler_mode = 0;
+    return cpu_step_result_make(CPU_STEP_OK, bus_result);
+}
+
 static cpu_step_result_t cpu_execute_thumb16(sim_t *sim, uint16_t instr) {
     bus_result_t bus_result = {0};
 
     if (instr == 0xBF00u) {
         sim->cpu.pc += 2u;
+        return cpu_step_result_make(CPU_STEP_OK, bus_result);
+    }
+
+    if ((instr & 0xFF87u) == 0x4700u) {
+        uint32_t rm = (instr >> 3) & 0xFu;
+        uint32_t target;
+
+        if (rm == 14u && cpu_is_exc_return(sim->cpu.lr)) {
+            return cpu_exception_return(sim);
+        }
+
+        if (rm < 13u) {
+            target = sim->cpu.r[rm];
+        } else if (rm == 14u) {
+            target = sim->cpu.lr;
+        } else {
+            return cpu_step_result_make(CPU_STEP_UNSUPPORTED, bus_result);
+        }
+
+        if ((target & 0x1u) == 0u) {
+            return cpu_step_result_make(
+                CPU_STEP_FAULT,
+                (bus_result_t){ .status = BUS_STATUS_UNALIGNED, .access = BUS_ACCESS_READ, .addr = target, .width = 2u }
+            );
+        }
+
+        sim->cpu.pc = target;
         return cpu_step_result_make(CPU_STEP_OK, bus_result);
     }
 
@@ -357,4 +419,62 @@ cpu_step_result_t cpu_step(sim_t *sim) {
 
     sim->cpu.instr_count++;
     return cpu_execute_thumb16(sim, instr);
+}
+
+cpu_step_result_t cpu_deliver_irq(sim_t *sim, int irq) {
+    bus_result_t bus_result = {0};
+    uint32_t exception_number;
+    uint32_t handler_pc = 0;
+    uint32_t sp;
+    uint32_t stacked[8];
+
+    if (sim == NULL || !sim->initialized || irq < 0) {
+        return cpu_step_result_make(
+            CPU_STEP_FAULT,
+            (bus_result_t){ .status = BUS_STATUS_BAD_ARGUMENT, .access = BUS_ACCESS_READ, .addr = 0u, .width = 0u }
+        );
+    }
+
+    if (sim->cpu.handler_mode || sim->cpu.primask != 0u) {
+        return cpu_step_result_make(CPU_STEP_OK, bus_result);
+    }
+
+    exception_number = CPU_EXTERNAL_EXCEPTION_BASE + (uint32_t)irq;
+    bus_result = bus_read32(&sim->bus, SIM_FLASH_BASE + (exception_number * 4u), &handler_pc);
+    if (!bus_result_is_ok(bus_result)) {
+        return cpu_step_result_make(CPU_STEP_FAULT, bus_result);
+    }
+
+    if ((handler_pc & 0x1u) == 0u) {
+        return cpu_step_result_make(
+            CPU_STEP_FAULT,
+            (bus_result_t){ .status = BUS_STATUS_UNALIGNED, .access = BUS_ACCESS_READ, .addr = handler_pc, .width = 2u }
+        );
+    }
+
+    sp = sim->cpu.msp - 32u;
+    stacked[0] = sim->cpu.r[0];
+    stacked[1] = sim->cpu.r[1];
+    stacked[2] = sim->cpu.r[2];
+    stacked[3] = sim->cpu.r[3];
+    stacked[4] = sim->cpu.r[12];
+    stacked[5] = sim->cpu.lr;
+    stacked[6] = sim->cpu.pc;
+    stacked[7] = sim->cpu.xpsr;
+
+    for (uint32_t i = 0; i < 8u; ++i) {
+        bus_result = bus_write32(&sim->bus, sp + (i * 4u), stacked[i]);
+        if (!bus_result_is_ok(bus_result)) {
+            return cpu_step_result_make(CPU_STEP_FAULT, bus_result);
+        }
+    }
+
+    sim->cpu.msp = sp;
+    sim->cpu.lr = CPU_EXC_RETURN_THREAD_MSP;
+    sim->cpu.pc = handler_pc;
+    sim->cpu.xpsr = (sim->cpu.xpsr & ~CPU_XPSR_EXCEPTION_MASK) | exception_number;
+    sim->cpu.active_exception = exception_number;
+    sim->cpu.handler_mode = 1;
+    (void)nvic_clear_pending(&sim->nvic, irq);
+    return cpu_step_result_make(CPU_STEP_OK, bus_result);
 }
