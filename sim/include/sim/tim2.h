@@ -3,10 +3,11 @@
 
 #include <stdint.h>
 
+#include "sim/irq.h"
 #include "sim/nvic.h"
 
 #define TIM2_BASE       0x40000000u
-#define TIM2_IRQ_NUMBER 28
+#define TIM2_IRQ_NUMBER SIM_IRQ_TIM2
 
 #define TIM2_CR1_OFFSET  0x00u
 #define TIM2_DIER_OFFSET 0x0Cu

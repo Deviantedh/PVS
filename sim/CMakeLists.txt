@@ -1,6 +1,7 @@
 set(SIM_PUBLIC_HEADERS
     include/sim/bus.h
     include/sim/cpu.h
+    include/sim/irq.h
     include/sim/memory.h
     include/sim/nvic.h
     include/sim/sim.h
@@ -41,5 +42,9 @@ if(PVS_BUILD_TESTS)
     add_executable(pvs_sim_smoke_test tests/smoke_test.c)
     target_link_libraries(pvs_sim_smoke_test PRIVATE pvs_sim)
 
+    add_executable(pvs_sim_firmware_integration_test tests/firmware_integration_test.c)
+    target_link_libraries(pvs_sim_firmware_integration_test PRIVATE pvs_sim)
+
     add_test(NAME pvs_sim_smoke_test COMMAND pvs_sim_smoke_test)
+    add_test(NAME pvs_sim_firmware_integration_test COMMAND pvs_sim_firmware_integration_test)
 endif()

@@ -468,10 +468,14 @@ PC=0x08000124  INST=0xF04F0301  R0=... R1=... APSR=...
 
 ## 5. Следующие шаги (рекомендуемые)
 
-1) Зафиксировать IRQ numbers (TIM2_IRQn, USART1_IRQn) в одном заголовке.
-2) Создать документ `docs/MMIO_MAP.md` с base addresses и offsets регистров.
-3) Создать `docs/CPU_ISA_COVERAGE.md` (таблица покрытия инструкций).
-4) Сразу написать 3 тестовые прошивки + интеграционный тест-раннер.
+1) [x] Зафиксировать IRQ numbers (TIM2_IRQn, USART1_IRQn) в одном заголовке (`sim/include/sim/irq.h`).
+2) [x] Создать документ `docs/MMIO_MAP.md` с base addresses и offsets регистров.
+3) [x] Создать `docs/CPU_ISA_COVERAGE.md` (таблица покрытия инструкций).
+4) [x] Сразу написать 3 тестовые прошивки + интеграционный тест-раннер.
+   - [x] `hello_uart`
+   - [x] `timer_irq`
+   - [x] `loop_counter`
+   - [x] integration runner (`sim/tests/firmware_integration_test.c`)
 
 ---
 

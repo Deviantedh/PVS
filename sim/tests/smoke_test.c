@@ -3,6 +3,7 @@
 #include <stdio.h>
 
 #include "sim/sim.h"
+#include "sim/irq.h"
 #include "sim/usart1.h"
 
 static void encode_u32le(uint8_t *dst, uint32_t value) {
@@ -94,6 +95,14 @@ static int test_reset_sequence(void) {
 
     sim_destroy(&sim);
     return 0;
+}
+
+static int test_irq_numbers_are_centralized(void) {
+    if (TIM2_IRQ_NUMBER != SIM_IRQ_TIM2 || USART1_IRQ_NUMBER != SIM_IRQ_USART1) {
+        return 1;
+    }
+
+    return SIM_IRQ_TIM2 == 28 && SIM_IRQ_USART1 == 37 ? 0 : 1;
 }
 
 static int test_step_nop(void) {
@@ -2051,6 +2060,7 @@ int main(void) {
     } while (0)
 
     RUN_TEST(test_reset_sequence);
+    RUN_TEST(test_irq_numbers_are_centralized);
     RUN_TEST(test_step_nop);
     RUN_TEST(test_branch);
     RUN_TEST(test_ldr_literal);

@@ -4,7 +4,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "sim/irq.h"
+
 #define USART1_BASE 0x40013800u
+#define USART1_IRQ_NUMBER SIM_IRQ_USART1
 
 #define USART1_SR_OFFSET  0x00u
 #define USART1_DR_OFFSET  0x04u
