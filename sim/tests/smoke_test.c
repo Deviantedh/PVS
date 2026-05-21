@@ -1295,6 +1295,141 @@ static int test_nvic_select_none(void) {
     return nvic_select_next(&nvic) == NVIC_NO_IRQ ? 0 : 1;
 }
 
+static int test_tim2_does_not_tick_when_disabled(void) {
+    tim2_t tim2;
+    nvic_t nvic;
+
+    tim2_init(&tim2);
+    nvic_init(&nvic);
+
+    if (tim2_write32(&tim2, TIM2_ARR_OFFSET, 10u) != 0
+        || tim2_write32(&tim2, TIM2_CNT_OFFSET, 3u) != 0) {
+        return 1;
+    }
+
+    tim2_tick(&tim2, &nvic, 5u);
+    return tim2.cnt == 3u && tim2.sr == 0u ? 0 : 1;
+}
+
+static int test_tim2_counts_when_enabled(void) {
+    tim2_t tim2;
+    nvic_t nvic;
+
+    tim2_init(&tim2);
+    nvic_init(&nvic);
+
+    if (tim2_write32(&tim2, TIM2_ARR_OFFSET, 10u) != 0
+        || tim2_write32(&tim2, TIM2_CR1_OFFSET, TIM2_CR1_CEN) != 0) {
+        return 1;
+    }
+
+    tim2_tick(&tim2, &nvic, 3u);
+    return tim2.cnt == 3u ? 0 : 1;
+}
+
+static int test_tim2_prescaler_counts_consistently(void) {
+    tim2_t tim2;
+    nvic_t nvic;
+
+    tim2_init(&tim2);
+    nvic_init(&nvic);
+
+    if (tim2_write32(&tim2, TIM2_ARR_OFFSET, 10u) != 0
+        || tim2_write32(&tim2, TIM2_PSC_OFFSET, 1u) != 0
+        || tim2_write32(&tim2, TIM2_CR1_OFFSET, TIM2_CR1_CEN) != 0) {
+        return 1;
+    }
+
+    tim2_tick(&tim2, &nvic, 1u);
+    if (tim2.cnt != 0u) {
+        return 1;
+    }
+
+    tim2_tick(&tim2, &nvic, 1u);
+    return tim2.cnt == 1u ? 0 : 1;
+}
+
+static int test_tim2_overflow_sets_uif(void) {
+    tim2_t tim2;
+    nvic_t nvic;
+
+    tim2_init(&tim2);
+    nvic_init(&nvic);
+
+    if (tim2_write32(&tim2, TIM2_ARR_OFFSET, 2u) != 0
+        || tim2_write32(&tim2, TIM2_CR1_OFFSET, TIM2_CR1_CEN) != 0) {
+        return 1;
+    }
+
+    tim2_tick(&tim2, &nvic, 3u);
+    return tim2.cnt == 0u && (tim2.sr & TIM2_SR_UIF) != 0u ? 0 : 1;
+}
+
+static int test_tim2_overflow_sets_pending_when_uie_enabled(void) {
+    tim2_t tim2;
+    nvic_t nvic;
+
+    tim2_init(&tim2);
+    nvic_init(&nvic);
+
+    if (tim2_write32(&tim2, TIM2_ARR_OFFSET, 1u) != 0
+        || tim2_write32(&tim2, TIM2_DIER_OFFSET, TIM2_DIER_UIE) != 0
+        || tim2_write32(&tim2, TIM2_CR1_OFFSET, TIM2_CR1_CEN) != 0) {
+        return 1;
+    }
+
+    tim2_tick(&tim2, &nvic, 2u);
+    return nvic_is_pending(&nvic, TIM2_IRQ_NUMBER) != 0 ? 0 : 1;
+}
+
+static int test_tim2_overflow_does_not_set_pending_when_uie_disabled(void) {
+    tim2_t tim2;
+    nvic_t nvic;
+
+    tim2_init(&tim2);
+    nvic_init(&nvic);
+
+    if (tim2_write32(&tim2, TIM2_ARR_OFFSET, 1u) != 0
+        || tim2_write32(&tim2, TIM2_CR1_OFFSET, TIM2_CR1_CEN) != 0) {
+        return 1;
+    }
+
+    tim2_tick(&tim2, &nvic, 2u);
+    return nvic_is_pending(&nvic, TIM2_IRQ_NUMBER) == 0 ? 0 : 1;
+}
+
+static int test_tim2_ticks_during_sim_step(void) {
+    sim_t sim;
+    uint8_t firmware[16] = {0};
+
+    encode_u32le(&firmware[0], 0x20002000u);
+    encode_u32le(&firmware[4], SIM_FLASH_BASE + 8u + 1u);
+    encode_u16le(&firmware[8], 0xBF00u);
+
+    if (sim_init(&sim, NULL) != 0) {
+        return 1;
+    }
+
+    if (sim_load_firmware(&sim, firmware, sizeof(firmware)) != 0 || sim_reset(&sim) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (tim2_write32(&sim.tim2, TIM2_ARR_OFFSET, 10u) != 0
+        || tim2_write32(&sim.tim2, TIM2_CR1_OFFSET, TIM2_CR1_CEN) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (sim_step(&sim) != SIM_STOP_NONE || sim.tim2.cnt != 1u) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    sim_destroy(&sim);
+    return 0;
+}
+
 int main(void) {
 #define RUN_TEST(fn) \
     do { \
@@ -1337,6 +1472,13 @@ int main(void) {
     RUN_TEST(test_nvic_select_by_priority);
     RUN_TEST(test_nvic_tie_break_by_irq_number);
     RUN_TEST(test_nvic_select_none);
+    RUN_TEST(test_tim2_does_not_tick_when_disabled);
+    RUN_TEST(test_tim2_counts_when_enabled);
+    RUN_TEST(test_tim2_prescaler_counts_consistently);
+    RUN_TEST(test_tim2_overflow_sets_uif);
+    RUN_TEST(test_tim2_overflow_sets_pending_when_uie_enabled);
+    RUN_TEST(test_tim2_overflow_does_not_set_pending_when_uie_disabled);
+    RUN_TEST(test_tim2_ticks_during_sim_step);
 
 #undef RUN_TEST
 

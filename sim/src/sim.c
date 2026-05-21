@@ -66,6 +66,7 @@ int sim_init(sim_t *sim, const sim_config_t *config) {
 
     bus_init(&sim->bus, &sim->memory);
     nvic_init(&sim->nvic);
+    tim2_init(&sim->tim2);
     cpu_state_reset(&sim->cpu);
     sim->initialized = 1;
     return 0;
@@ -90,6 +91,7 @@ int sim_reset(sim_t *sim) {
 
     cpu_state_reset(&sim->cpu);
     nvic_reset(&sim->nvic);
+    tim2_reset(&sim->tim2);
     memory_reset(&sim->memory);
     sim->stop_reason = SIM_STOP_NONE;
     sim->last_bus_result = (bus_result_t){0};
@@ -126,6 +128,7 @@ sim_stop_reason_t sim_step(sim_t *sim) {
         sim->stop_reason = SIM_STOP_FAULT;
         return sim->stop_reason;
     }
+    tim2_tick(&sim->tim2, &sim->nvic, 1u);
 
     cpu_result = cpu_step(sim);
     sim->last_bus_result = cpu_result.bus_result;
