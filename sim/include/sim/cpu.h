@@ -31,6 +31,7 @@ typedef struct cpu_state {
 
 typedef enum cpu_step_status {
     CPU_STEP_OK = 0,
+    CPU_STEP_BREAK,
     CPU_STEP_UNSUPPORTED,
     CPU_STEP_FAULT
 } cpu_step_status_t;

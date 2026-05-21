@@ -149,6 +149,10 @@ sim_stop_reason_t sim_step(sim_t *sim) {
     if (cpu_result.status == CPU_STEP_FAULT) {
         return sim_stop_with_bus(sim, cpu_result.bus_result);
     }
+    if (cpu_result.status == CPU_STEP_BREAK) {
+        sim->stop_reason = SIM_STOP_BREAK;
+        return sim->stop_reason;
+    }
     if (cpu_result.status == CPU_STEP_UNSUPPORTED) {
         sim->stop_reason = SIM_STOP_UNSUPPORTED_INSTR;
         return sim->stop_reason;
@@ -163,6 +167,10 @@ sim_stop_reason_t sim_step(sim_t *sim) {
             sim->last_bus_result = cpu_result.bus_result;
             if (cpu_result.status == CPU_STEP_FAULT) {
                 return sim_stop_with_bus(sim, cpu_result.bus_result);
+            }
+            if (cpu_result.status == CPU_STEP_BREAK) {
+                sim->stop_reason = SIM_STOP_BREAK;
+                return sim->stop_reason;
             }
             if (cpu_result.status == CPU_STEP_UNSUPPORTED) {
                 sim->stop_reason = SIM_STOP_UNSUPPORTED_INSTR;

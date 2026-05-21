@@ -10,7 +10,7 @@
 - [x] Реализовать минимальный `BL` Thumb-2 и 32-bit fetch path для вызовов.
 - [x] Реализовать базовые logical Thumb16: `AND`, `ORR`, `EOR`.
 - [x] Реализовать базовые shifts Thumb16: `LSL`, `LSR`, `ASR`.
-- [ ] Реализовать `SVC` как контролируемый exception/stop path.
+- [x] Реализовать `SVC` как контролируемый exception/stop path.
 - [ ] Синхронизировать статусы `CPU_ISA_COVERAGE.md` с фактической реализацией.
 
 ## P1 - MMIO and peripherals

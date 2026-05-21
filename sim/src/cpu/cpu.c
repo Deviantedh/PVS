@@ -189,6 +189,11 @@ static cpu_step_result_t cpu_execute_thumb16(sim_t *sim, uint16_t instr) {
         return cpu_step_result_make(CPU_STEP_OK, bus_result);
     }
 
+    if ((instr & 0xFF00u) == 0xDF00u) {
+        sim->cpu.pc += 2u;
+        return cpu_step_result_make(CPU_STEP_BREAK, bus_result);
+    }
+
     if ((instr & 0xF800u) == 0x0000u) {
         uint32_t imm5 = (instr >> 6) & 0x1Fu;
         uint32_t rm = (instr >> 3) & 0x7u;

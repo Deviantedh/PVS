@@ -1637,6 +1637,34 @@ static int test_unsupported_instruction(void) {
     return 0;
 }
 
+static int test_svc_stops_controlled(void) {
+    sim_t sim;
+    uint8_t firmware[16] = {0};
+
+    encode_u32le(&firmware[0], 0x20002000u);
+    encode_u32le(&firmware[4], SIM_FLASH_BASE + 8u + 1u);
+    encode_u16le(&firmware[8], 0xDF00u);
+
+    if (sim_init(&sim, NULL) != 0) {
+        return 1;
+    }
+
+    if (sim_load_firmware(&sim, firmware, sizeof(firmware)) != 0 || sim_reset(&sim) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (sim_step(&sim) != SIM_STOP_BREAK
+        || sim.cpu.pc != SIM_FLASH_BASE + 10u + 1u
+        || sim.cpu.instr_count != 1u) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    sim_destroy(&sim);
+    return 0;
+}
+
 static int test_faults(void) {
     sim_t sim;
     uint8_t bad_vector_firmware[8] = {0};
@@ -2576,6 +2604,7 @@ int main(void) {
     RUN_TEST(test_unaligned_halfword_access);
     RUN_TEST(test_unmapped_byte_and_halfword_access);
     RUN_TEST(test_unsupported_instruction);
+    RUN_TEST(test_svc_stops_controlled);
     RUN_TEST(test_faults);
     RUN_TEST(test_nvic_enable_disable);
     RUN_TEST(test_nvic_pending_set_clear);

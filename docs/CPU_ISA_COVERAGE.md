@@ -170,7 +170,7 @@
 |---|---|---:|---:|---|---|
 | No‑op | NOP | ✅ | ✅ | `0xBF00` реализован | UT |
 | Breakpoint | BKPT | 🟨 | ✅ | MVP: останавливаем с STOP_OK/STOP_BREAK | FW |
-| Supervisor call | SVC | ⏳ | ✅ | нужен для тестов исключений | FW |
+| Supervisor call | SVC | 🟨 | ✅ | MVP: `SVC #imm8` останавливает симулятор через `SIM_STOP_BREAK`; полноценный SVC handler позже | FW |
 | Interrupt control | CPSID/CPSIE | 🟨 | ⏳ | MVP: PRIMASK только | UT/FW |
 | Wait | WFI/WFE/SEV | 🟨 | ⏳ | MVP: treat as NOP или STOP_OK (фиксировать) | UT |
 | MRS/MSR | MRS/MSR (special regs) | ❌ | ⏳ | нужно для BASEPRI/CONTROL позже | UT |
