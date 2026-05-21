@@ -12,6 +12,23 @@
 - Не требуется 100% бинарная совместимость со всеми особенностями STM32.
 - Допускается поэтапная реализация (MVP → расширение).
 
+### Актуальный статус реализации
+
+На текущий момент в репозитории уже реализован рабочий MVP симулятора:
+
+- модель памяти `Flash/SRAM`
+- `bus` с маршрутизацией в `MMIO`
+- fault model (`UNMAPPED`, `UNALIGNED`, `BAD_ARGUMENT`)
+- загрузка raw firmware и reset sequence из vector table
+- CPU MVP для `Thumb16`
+- `NVIC`
+- `TIM2`
+- `USART1`
+- минимальная доставка внешних IRQ и возврат из handler mode
+- накопление `uart_output`
+
+Go-микросервис, `KeyDB` и `OpenTelemetry` пока не реализованы.
+
 ---
 
 ## 2. Аппаратная база
@@ -65,6 +82,17 @@ STM32F103C8T6:
   - UART
   - NVIC
 
+### Что уже поддерживается в коде
+
+- исполнение поднабора `Thumb16`
+- загрузка и исполнение прошивки из `Flash`
+- чтение и запись `Flash/SRAM/MMIO`
+- настройка `TIM2` через `MMIO`
+- настройка `USART1` через `MMIO`
+- генерация IRQ от `TIM2`
+- переход CPU в обработчик IRQ и возврат в thread mode
+- накопление переданных байтов UART в `sim.uart_output`
+
 ---
 
 ## 5. Архитектура проекта
@@ -84,6 +112,34 @@ simulator/
 - cpu ↔ bus: чтение/запись по адресу (read32/write32 и аналоги)
 - bus ↔ memory/peripherals: маршрутизация по диапазонам адресов
 - peripherals ↔ nvic: генерация прерываний
+
+### Актуальная структура репозитория
+
+```text
+sim/
+├── include/sim/
+│   ├── bus.h
+│   ├── cpu.h
+│   ├── memory.h
+│   ├── nvic.h
+│   ├── sim.h
+│   ├── tim2.h
+│   └── usart1.h
+├── src/
+│   ├── bus.c
+│   ├── cli.c
+│   ├── memory.c
+│   ├── sim.c
+│   ├── cpu/
+│   │   └── cpu.c
+│   └── devices/
+│       ├── nvic.c
+│       ├── tim2.c
+│       ├── usart1.c
+│       └── stub.c
+└── tests/
+    └── smoke_test.c
+```
 
 ---
 
@@ -112,10 +168,11 @@ cpu/
 
 ```c
 while (running) {
+    bus_tick();
+    tim2_tick();
     cpu_step();
-    nvic_poll();           // проверка/доставка прерываний
-    systick_tick();        // системный таймер
-    peripherals_tick();    // обновление периферии
+    irq_delivery();
+    drain_uart_output();
 }
 ```
 
@@ -146,6 +203,29 @@ while (running) {
 - NOP
 - SVC (для входа в обработчик)
 
+### Реально реализованный ISA-поднабор
+
+Арифметика и сравнения:
+- `MOVS (imm)`
+- `MOV (register)`
+- `ADD (imm/register)`
+- `SUB (imm/register)`
+- `CMP (imm/register)`
+
+Переходы:
+- `B`
+- `B<cond>`
+- `BX LR` для минимального exception return
+
+Память:
+- `LDR literal`
+- `LDR/STR`
+- `LDRB/STRB`
+- `LDRH/STRH`
+
+Системные:
+- `NOP`
+
 ---
 
 ## 9. Прерывания (NVIC)
@@ -162,6 +242,21 @@ while (running) {
 Возврат:
 - специальное значение в LR (EXC_RETURN)
 - pop контекста
+
+### Что реализовано сейчас
+
+- хранение `enabled`, `pending`, `priority`
+- выбор следующего IRQ через `nvic_select_next()`
+- генерация pending IRQ от `TIM2`
+- минимальный `exception entry` для внешних IRQ
+- минимальный `exception return` через `BX LR`
+
+### Что пока не реализовано
+
+- `NVIC MMIO`
+- nested interrupts
+- `BASEPRI`
+- `SVC` / `HardFault` как полноценные exception paths
 
 ---
 
@@ -192,6 +287,22 @@ Integration tests:
 
 Golden tests:
 - сравнение ожидаемого состояния регистров/памяти
+
+### Что реально покрыто сейчас
+
+- reset sequence
+- fetch/decode/execute для базового `Thumb16`
+- арифметика и флаги
+- условные и безусловные ветвления
+- циклы и отрицательные смещения
+- `word/byte/halfword` memory access
+- fault cases
+- `NVIC`
+- `TIM2`
+- `TIM2 MMIO`
+- `USART1`
+- `USART1 MMIO`
+- interrupt delivery и возврат из handler mode
 
 ---
 
@@ -233,6 +344,24 @@ Golden tests:
 
 Этап 6: Отладка
 - трассировка, дампы
+
+### Актуальное состояние roadmap
+
+Уже сделано:
+- CPU MVP
+- память и загрузка
+- базовые `MMIO`-устройства
+- `NVIC`
+- `TIM2`
+- `USART1`
+- минимальная модель прерываний
+
+Еще осталось:
+- `NVIC MMIO`
+- инструкции `CPSIE/CPSID`
+- демонстрационный `CLI`
+- интеграционные firmware-сценарии
+- Go-микросервис из исходного плана
 
 ---
 
@@ -296,6 +425,11 @@ void cpu_step(cpu_t*);
 - выполнении команды выхода (например SVC)
 - возникновении ошибки (fault)
 - достижении breakpoint (если реализовано)
+
+Сейчас реально используются:
+- `SIM_STOP_MAX_INSTRUCTIONS`
+- `SIM_STOP_UNSUPPORTED_INSTR`
+- `SIM_STOP_FAULT`
 
 ---
 
