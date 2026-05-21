@@ -2,6 +2,7 @@ set(SIM_PUBLIC_HEADERS
     include/sim/bus.h
     include/sim/cpu.h
     include/sim/memory.h
+    include/sim/nvic.h
     include/sim/sim.h
 )
 
@@ -10,6 +11,7 @@ set(SIM_SOURCES
     src/memory.c
     src/sim.c
     src/cpu/cpu.c
+    src/devices/nvic.c
     src/devices/stub.c
     src/util/log.c
 )

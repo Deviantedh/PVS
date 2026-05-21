@@ -65,6 +65,7 @@ int sim_init(sim_t *sim, const sim_config_t *config) {
     }
 
     bus_init(&sim->bus, &sim->memory);
+    nvic_init(&sim->nvic);
     cpu_state_reset(&sim->cpu);
     sim->initialized = 1;
     return 0;
@@ -88,6 +89,7 @@ int sim_reset(sim_t *sim) {
     }
 
     cpu_state_reset(&sim->cpu);
+    nvic_reset(&sim->nvic);
     memory_reset(&sim->memory);
     sim->stop_reason = SIM_STOP_NONE;
     sim->last_bus_result = (bus_result_t){0};

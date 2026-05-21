@@ -1197,6 +1197,104 @@ static int test_faults(void) {
     return 0;
 }
 
+static int test_nvic_enable_disable(void) {
+    nvic_t nvic;
+
+    nvic_init(&nvic);
+
+    if (nvic_is_enabled(&nvic, 5) != 0) {
+        return 1;
+    }
+
+    if (nvic_enable_irq(&nvic, 5) != 0 || nvic_is_enabled(&nvic, 5) == 0) {
+        return 1;
+    }
+
+    if (nvic_disable_irq(&nvic, 5) != 0 || nvic_is_enabled(&nvic, 5) != 0) {
+        return 1;
+    }
+
+    if (nvic_enable_irq(&nvic, -1) == 0 || nvic_enable_irq(&nvic, (int)NVIC_MAX_IRQS) == 0) {
+        return 1;
+    }
+
+    return 0;
+}
+
+static int test_nvic_pending_set_clear(void) {
+    nvic_t nvic;
+
+    nvic_init(&nvic);
+
+    if (nvic_is_pending(&nvic, 7) != 0) {
+        return 1;
+    }
+
+    if (nvic_set_pending(&nvic, 7) != 0 || nvic_is_pending(&nvic, 7) == 0) {
+        return 1;
+    }
+
+    if (nvic_clear_pending(&nvic, 7) != 0 || nvic_is_pending(&nvic, 7) != 0) {
+        return 1;
+    }
+
+    return 0;
+}
+
+static int test_nvic_select_by_priority(void) {
+    nvic_t nvic;
+
+    nvic_init(&nvic);
+
+    if (nvic_enable_irq(&nvic, 10) != 0
+        || nvic_enable_irq(&nvic, 20) != 0
+        || nvic_set_pending(&nvic, 10) != 0
+        || nvic_set_pending(&nvic, 20) != 0
+        || nvic_set_priority(&nvic, 10, 3u) != 0
+        || nvic_set_priority(&nvic, 20, 1u) != 0) {
+        return 1;
+    }
+
+    return nvic_select_next(&nvic) == 20 ? 0 : 1;
+}
+
+static int test_nvic_tie_break_by_irq_number(void) {
+    nvic_t nvic;
+
+    nvic_init(&nvic);
+
+    if (nvic_enable_irq(&nvic, 12) != 0
+        || nvic_enable_irq(&nvic, 4) != 0
+        || nvic_set_pending(&nvic, 12) != 0
+        || nvic_set_pending(&nvic, 4) != 0
+        || nvic_set_priority(&nvic, 12, 2u) != 0
+        || nvic_set_priority(&nvic, 4, 2u) != 0) {
+        return 1;
+    }
+
+    return nvic_select_next(&nvic) == 4 ? 0 : 1;
+}
+
+static int test_nvic_select_none(void) {
+    nvic_t nvic;
+
+    nvic_init(&nvic);
+
+    if (nvic_select_next(&nvic) != NVIC_NO_IRQ) {
+        return 1;
+    }
+
+    if (nvic_set_pending(&nvic, 3) != 0 || nvic_select_next(&nvic) != NVIC_NO_IRQ) {
+        return 1;
+    }
+
+    if (nvic_clear_pending(&nvic, 3) != 0 || nvic_enable_irq(&nvic, 3) != 0) {
+        return 1;
+    }
+
+    return nvic_select_next(&nvic) == NVIC_NO_IRQ ? 0 : 1;
+}
+
 int main(void) {
 #define RUN_TEST(fn) \
     do { \
@@ -1234,6 +1332,11 @@ int main(void) {
     RUN_TEST(test_unmapped_byte_and_halfword_access);
     RUN_TEST(test_unsupported_instruction);
     RUN_TEST(test_faults);
+    RUN_TEST(test_nvic_enable_disable);
+    RUN_TEST(test_nvic_pending_set_clear);
+    RUN_TEST(test_nvic_select_by_priority);
+    RUN_TEST(test_nvic_tie_break_by_irq_number);
+    RUN_TEST(test_nvic_select_none);
 
 #undef RUN_TEST
 

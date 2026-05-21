@@ -7,6 +7,7 @@
 #include "sim/bus.h"
 #include "sim/cpu.h"
 #include "sim/memory.h"
+#include "sim/nvic.h"
 
 typedef enum sim_stop_reason {
     SIM_STOP_NONE = 0,
@@ -26,6 +27,7 @@ typedef struct sim {
     cpu_state_t cpu;
     memory_t memory;
     bus_t bus;
+    nvic_t nvic;
     sim_config_t config;
     sim_stop_reason_t stop_reason;
     bus_result_t last_bus_result;
