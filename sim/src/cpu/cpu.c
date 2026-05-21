@@ -41,6 +41,60 @@ static void cpu_update_sub_flags(cpu_state_t *cpu, uint32_t left, uint32_t right
     cpu_set_flag(cpu, CPU_XPSR_V_MASK, (((left ^ right) & (left ^ result)) & 0x80000000u) != 0u);
 }
 
+static uint32_t cpu_lsl(cpu_state_t *cpu, uint32_t value, uint32_t shift) {
+    if (shift == 0u) {
+        return value;
+    }
+    if (shift < 32u) {
+        cpu_set_flag(cpu, CPU_XPSR_C_MASK, ((value >> (32u - shift)) & 0x1u) != 0u);
+        return value << shift;
+    }
+    if (shift == 32u) {
+        cpu_set_flag(cpu, CPU_XPSR_C_MASK, (value & 0x1u) != 0u);
+        return 0;
+    }
+
+    cpu_set_flag(cpu, CPU_XPSR_C_MASK, 0);
+    return 0;
+}
+
+static uint32_t cpu_lsr(cpu_state_t *cpu, uint32_t value, uint32_t shift) {
+    if (shift == 0u) {
+        return value;
+    }
+    if (shift < 32u) {
+        cpu_set_flag(cpu, CPU_XPSR_C_MASK, ((value >> (shift - 1u)) & 0x1u) != 0u);
+        return value >> shift;
+    }
+    if (shift == 32u) {
+        cpu_set_flag(cpu, CPU_XPSR_C_MASK, (value & 0x80000000u) != 0u);
+        return 0;
+    }
+
+    cpu_set_flag(cpu, CPU_XPSR_C_MASK, 0);
+    return 0;
+}
+
+static uint32_t cpu_asr(cpu_state_t *cpu, uint32_t value, uint32_t shift) {
+    uint32_t sign = value & 0x80000000u;
+
+    if (shift == 0u) {
+        return value;
+    }
+    if (shift < 32u) {
+        uint32_t result = value >> shift;
+
+        cpu_set_flag(cpu, CPU_XPSR_C_MASK, ((value >> (shift - 1u)) & 0x1u) != 0u);
+        if (sign != 0u) {
+            result |= 0xFFFFFFFFu << (32u - shift);
+        }
+        return result;
+    }
+
+    cpu_set_flag(cpu, CPU_XPSR_C_MASK, sign != 0u);
+    return sign != 0u ? 0xFFFFFFFFu : 0u;
+}
+
 static int cpu_condition_passed(const cpu_state_t *cpu, uint32_t condition) {
     int n = cpu_flag_is_set(cpu, CPU_XPSR_N_MASK);
     int z = cpu_flag_is_set(cpu, CPU_XPSR_Z_MASK);
@@ -135,6 +189,44 @@ static cpu_step_result_t cpu_execute_thumb16(sim_t *sim, uint16_t instr) {
         return cpu_step_result_make(CPU_STEP_OK, bus_result);
     }
 
+    if ((instr & 0xF800u) == 0x0000u) {
+        uint32_t imm5 = (instr >> 6) & 0x1Fu;
+        uint32_t rm = (instr >> 3) & 0x7u;
+        uint32_t rd = instr & 0x7u;
+        uint32_t result = cpu_lsl(&sim->cpu, sim->cpu.r[rm], imm5);
+
+        sim->cpu.r[rd] = result;
+        cpu_update_nz(&sim->cpu, result);
+        sim->cpu.pc += 2u;
+        return cpu_step_result_make(CPU_STEP_OK, bus_result);
+    }
+
+    if ((instr & 0xF800u) == 0x0800u) {
+        uint32_t imm5 = (instr >> 6) & 0x1Fu;
+        uint32_t rm = (instr >> 3) & 0x7u;
+        uint32_t rd = instr & 0x7u;
+        uint32_t shift = imm5 == 0u ? 32u : imm5;
+        uint32_t result = cpu_lsr(&sim->cpu, sim->cpu.r[rm], shift);
+
+        sim->cpu.r[rd] = result;
+        cpu_update_nz(&sim->cpu, result);
+        sim->cpu.pc += 2u;
+        return cpu_step_result_make(CPU_STEP_OK, bus_result);
+    }
+
+    if ((instr & 0xF800u) == 0x1000u) {
+        uint32_t imm5 = (instr >> 6) & 0x1Fu;
+        uint32_t rm = (instr >> 3) & 0x7u;
+        uint32_t rd = instr & 0x7u;
+        uint32_t shift = imm5 == 0u ? 32u : imm5;
+        uint32_t result = cpu_asr(&sim->cpu, sim->cpu.r[rm], shift);
+
+        sim->cpu.r[rd] = result;
+        cpu_update_nz(&sim->cpu, result);
+        sim->cpu.pc += 2u;
+        return cpu_step_result_make(CPU_STEP_OK, bus_result);
+    }
+
     if ((instr & 0xFF87u) == 0x4700u) {
         uint32_t rm = (instr >> 3) & 0xFu;
         uint32_t target;
@@ -198,6 +290,39 @@ static cpu_step_result_t cpu_execute_thumb16(sim_t *sim, uint16_t instr) {
 
         sim->cpu.r[rdn] ^= sim->cpu.r[rm];
         cpu_update_nz(&sim->cpu, sim->cpu.r[rdn]);
+        sim->cpu.pc += 2u;
+        return cpu_step_result_make(CPU_STEP_OK, bus_result);
+    }
+
+    if ((instr & 0xFFC0u) == 0x4080u) {
+        uint32_t rm = (instr >> 3) & 0x7u;
+        uint32_t rdn = instr & 0x7u;
+        uint32_t result = cpu_lsl(&sim->cpu, sim->cpu.r[rdn], sim->cpu.r[rm] & 0xFFu);
+
+        sim->cpu.r[rdn] = result;
+        cpu_update_nz(&sim->cpu, result);
+        sim->cpu.pc += 2u;
+        return cpu_step_result_make(CPU_STEP_OK, bus_result);
+    }
+
+    if ((instr & 0xFFC0u) == 0x40C0u) {
+        uint32_t rm = (instr >> 3) & 0x7u;
+        uint32_t rdn = instr & 0x7u;
+        uint32_t result = cpu_lsr(&sim->cpu, sim->cpu.r[rdn], sim->cpu.r[rm] & 0xFFu);
+
+        sim->cpu.r[rdn] = result;
+        cpu_update_nz(&sim->cpu, result);
+        sim->cpu.pc += 2u;
+        return cpu_step_result_make(CPU_STEP_OK, bus_result);
+    }
+
+    if ((instr & 0xFFC0u) == 0x4100u) {
+        uint32_t rm = (instr >> 3) & 0x7u;
+        uint32_t rdn = instr & 0x7u;
+        uint32_t result = cpu_asr(&sim->cpu, sim->cpu.r[rdn], sim->cpu.r[rm] & 0xFFu);
+
+        sim->cpu.r[rdn] = result;
+        cpu_update_nz(&sim->cpu, result);
         sim->cpu.pc += 2u;
         return cpu_step_result_make(CPU_STEP_OK, bus_result);
     }

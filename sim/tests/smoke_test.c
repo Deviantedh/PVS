@@ -60,6 +60,30 @@ static uint16_t encode_orr_reg(uint8_t rdn, uint8_t rm) {
     return (uint16_t)(0x4300u | ((uint16_t)(rm & 0x7u) << 3) | (rdn & 0x7u));
 }
 
+static uint16_t encode_lsl_imm(uint8_t rd, uint8_t rm, uint8_t imm5) {
+    return (uint16_t)(0x0000u | ((uint16_t)(imm5 & 0x1Fu) << 6) | ((uint16_t)(rm & 0x7u) << 3) | (rd & 0x7u));
+}
+
+static uint16_t encode_lsr_imm(uint8_t rd, uint8_t rm, uint8_t imm5) {
+    return (uint16_t)(0x0800u | ((uint16_t)(imm5 & 0x1Fu) << 6) | ((uint16_t)(rm & 0x7u) << 3) | (rd & 0x7u));
+}
+
+static uint16_t encode_asr_imm(uint8_t rd, uint8_t rm, uint8_t imm5) {
+    return (uint16_t)(0x1000u | ((uint16_t)(imm5 & 0x1Fu) << 6) | ((uint16_t)(rm & 0x7u) << 3) | (rd & 0x7u));
+}
+
+static uint16_t encode_lsl_reg(uint8_t rdn, uint8_t rm) {
+    return (uint16_t)(0x4080u | ((uint16_t)(rm & 0x7u) << 3) | (rdn & 0x7u));
+}
+
+static uint16_t encode_lsr_reg(uint8_t rdn, uint8_t rm) {
+    return (uint16_t)(0x40C0u | ((uint16_t)(rm & 0x7u) << 3) | (rdn & 0x7u));
+}
+
+static uint16_t encode_asr_reg(uint8_t rdn, uint8_t rm) {
+    return (uint16_t)(0x4100u | ((uint16_t)(rm & 0x7u) << 3) | (rdn & 0x7u));
+}
+
 static void encode_bl(uint8_t *dst, uint32_t instr_addr, uint32_t target_addr) {
     int32_t offset = (int32_t)(target_addr & ~0x1u) - (int32_t)instr_addr - 4;
     uint32_t imm25 = (uint32_t)offset & 0x01FFFFFFu;
@@ -582,6 +606,153 @@ static int test_orr_register_updates_negative_flag(void) {
     if (sim.cpu.r[0] != 0x80000001u
         || expect_flag_set(sim.cpu.xpsr, CPU_XPSR_Z_MASK, 0) != 0
         || expect_flag_set(sim.cpu.xpsr, CPU_XPSR_N_MASK, 1) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    sim_destroy(&sim);
+    return 0;
+}
+
+static int test_lsl_immediate_updates_carry_and_zero(void) {
+    sim_t sim;
+    uint8_t firmware[32] = {0};
+
+    encode_u32le(&firmware[0], 0x20002000u);
+    encode_u32le(&firmware[4], SIM_FLASH_BASE + 8u + 1u);
+    encode_u16le(&firmware[8], 0x4801u);
+    encode_u16le(&firmware[10], encode_lsl_imm(1u, 0u, 1u));
+    encode_u32le(&firmware[16], 0x80000000u);
+
+    if (sim_init(&sim, NULL) != 0) {
+        return 1;
+    }
+
+    if (sim_load_firmware(&sim, firmware, sizeof(firmware)) != 0 || sim_reset(&sim) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (sim_step(&sim) != SIM_STOP_NONE || sim_step(&sim) != SIM_STOP_NONE) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (sim.cpu.r[1] != 0u
+        || expect_flag_set(sim.cpu.xpsr, CPU_XPSR_C_MASK, 1) != 0
+        || expect_flag_set(sim.cpu.xpsr, CPU_XPSR_Z_MASK, 1) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    sim_destroy(&sim);
+    return 0;
+}
+
+static int test_lsr_immediate_zero_shift_means_32(void) {
+    sim_t sim;
+    uint8_t firmware[32] = {0};
+
+    encode_u32le(&firmware[0], 0x20002000u);
+    encode_u32le(&firmware[4], SIM_FLASH_BASE + 8u + 1u);
+    encode_u16le(&firmware[8], 0x4801u);
+    encode_u16le(&firmware[10], encode_lsr_imm(1u, 0u, 0u));
+    encode_u32le(&firmware[16], 0x80000000u);
+
+    if (sim_init(&sim, NULL) != 0) {
+        return 1;
+    }
+
+    if (sim_load_firmware(&sim, firmware, sizeof(firmware)) != 0 || sim_reset(&sim) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (sim_step(&sim) != SIM_STOP_NONE || sim_step(&sim) != SIM_STOP_NONE) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (sim.cpu.r[1] != 0u
+        || expect_flag_set(sim.cpu.xpsr, CPU_XPSR_C_MASK, 1) != 0
+        || expect_flag_set(sim.cpu.xpsr, CPU_XPSR_Z_MASK, 1) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    sim_destroy(&sim);
+    return 0;
+}
+
+static int test_asr_immediate_sign_extends(void) {
+    sim_t sim;
+    uint8_t firmware[32] = {0};
+
+    encode_u32le(&firmware[0], 0x20002000u);
+    encode_u32le(&firmware[4], SIM_FLASH_BASE + 8u + 1u);
+    encode_u16le(&firmware[8], 0x4801u);
+    encode_u16le(&firmware[10], encode_asr_imm(1u, 0u, 1u));
+    encode_u32le(&firmware[16], 0x80000000u);
+
+    if (sim_init(&sim, NULL) != 0) {
+        return 1;
+    }
+
+    if (sim_load_firmware(&sim, firmware, sizeof(firmware)) != 0 || sim_reset(&sim) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (sim_step(&sim) != SIM_STOP_NONE || sim_step(&sim) != SIM_STOP_NONE) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (sim.cpu.r[1] != 0xC0000000u
+        || expect_flag_set(sim.cpu.xpsr, CPU_XPSR_C_MASK, 0) != 0
+        || expect_flag_set(sim.cpu.xpsr, CPU_XPSR_N_MASK, 1) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    sim_destroy(&sim);
+    return 0;
+}
+
+static int test_register_shifts(void) {
+    sim_t sim;
+    uint8_t firmware[32] = {0};
+
+    encode_u32le(&firmware[0], 0x20002000u);
+    encode_u32le(&firmware[4], SIM_FLASH_BASE + 8u + 1u);
+    encode_u16le(&firmware[8], 0x2002u);
+    encode_u16le(&firmware[10], 0x2103u);
+    encode_u16le(&firmware[12], encode_lsl_reg(0u, 1u));
+    encode_u16le(&firmware[14], 0x2210u);
+    encode_u16le(&firmware[16], 0x2302u);
+    encode_u16le(&firmware[18], encode_lsr_reg(2u, 3u));
+    encode_u16le(&firmware[20], 0x2480u);
+    encode_u16le(&firmware[22], 0x2502u);
+    encode_u16le(&firmware[24], encode_lsl_imm(4u, 4u, 24u));
+    encode_u16le(&firmware[26], encode_asr_reg(4u, 5u));
+
+    if (sim_init(&sim, NULL) != 0) {
+        return 1;
+    }
+
+    if (sim_load_firmware(&sim, firmware, sizeof(firmware)) != 0 || sim_reset(&sim) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    for (int i = 0; i < 10; ++i) {
+        if (sim_step(&sim) != SIM_STOP_NONE) {
+            sim_destroy(&sim);
+            return 1;
+        }
+    }
+
+    if (sim.cpu.r[0] != 16u || sim.cpu.r[2] != 4u || sim.cpu.r[4] != 0xE0000000u) {
         sim_destroy(&sim);
         return 1;
     }
@@ -2380,6 +2551,10 @@ int main(void) {
     RUN_TEST(test_and_register_updates_zero_flag);
     RUN_TEST(test_eor_register);
     RUN_TEST(test_orr_register_updates_negative_flag);
+    RUN_TEST(test_lsl_immediate_updates_carry_and_zero);
+    RUN_TEST(test_lsr_immediate_zero_shift_means_32);
+    RUN_TEST(test_asr_immediate_sign_extends);
+    RUN_TEST(test_register_shifts);
     RUN_TEST(test_beq_taken);
     RUN_TEST(test_bne_not_taken);
     RUN_TEST(test_blt_taken_signed);

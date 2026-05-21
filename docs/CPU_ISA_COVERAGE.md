@@ -123,7 +123,7 @@
 
 | Группа | Инструкции | L1 | L2 | Примечания/упрощения | Тест |
 |---|---|---:|---:|---|---|
-| Shifts (reg/imm) | LSL, LSR, ASR | ⏳ | ✅ | C флаг обновлять по ARM‑правилам | UT |
+| Shifts (reg/imm) | LSL, LSR, ASR | ✅ | ✅ | immediate и register формы; C флаг обновляется по ARM‑правилам | UT |
 | Rotate | ROR | ❌ | ⏳ | нужен для некоторых библиотек | UT |
 | Bitfield | BFI/BFC/UBFX/SBFX | ❌ | ⏳ | можно отложить | UT |
 
