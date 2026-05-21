@@ -9,6 +9,9 @@
 #include "sim/memory.h"
 #include "sim/nvic.h"
 #include "sim/tim2.h"
+#include "sim/usart1.h"
+
+#define SIM_UART_OUTPUT_SIZE 1024u
 
 typedef enum sim_stop_reason {
     SIM_STOP_NONE = 0,
@@ -30,6 +33,9 @@ typedef struct sim {
     bus_t bus;
     nvic_t nvic;
     tim2_t tim2;
+    usart1_t usart1;
+    char uart_output[SIM_UART_OUTPUT_SIZE + 1u];
+    size_t uart_output_size;
     sim_config_t config;
     sim_stop_reason_t stop_reason;
     bus_result_t last_bus_result;
@@ -41,6 +47,10 @@ int sim_load_firmware(sim_t *sim, const void *data, size_t size);
 int sim_reset(sim_t *sim);
 sim_stop_reason_t sim_step(sim_t *sim);
 sim_stop_reason_t sim_run(sim_t *sim, uint64_t max_steps);
+size_t sim_drain_uart_output(sim_t *sim);
+const char *sim_uart_output_data(const sim_t *sim);
+size_t sim_uart_output_size(const sim_t *sim);
+void sim_uart_output_clear(sim_t *sim);
 void sim_destroy(sim_t *sim);
 
 #endif

@@ -26,6 +26,16 @@ static bus_result_t sim_read_vector_word(sim_t *sim, uint32_t addr, uint32_t *va
     return result;
 }
 
+static void sim_uart_output_append(sim_t *sim, uint8_t value) {
+    if (sim->uart_output_size >= SIM_UART_OUTPUT_SIZE) {
+        return;
+    }
+
+    sim->uart_output[sim->uart_output_size] = (char)value;
+    sim->uart_output_size++;
+    sim->uart_output[sim->uart_output_size] = '\0';
+}
+
 static sim_config_t sim_config_resolve(const sim_config_t *config) {
     sim_config_t resolved = {
         .flash_size = SIM_DEFAULT_FLASH_SIZE,
@@ -66,7 +76,9 @@ int sim_init(sim_t *sim, const sim_config_t *config) {
 
     nvic_init(&sim->nvic);
     tim2_init(&sim->tim2);
-    bus_init(&sim->bus, &sim->memory, &sim->tim2);
+    usart1_init(&sim->usart1);
+    sim_uart_output_clear(sim);
+    bus_init(&sim->bus, &sim->memory, &sim->tim2, &sim->usart1);
     cpu_state_reset(&sim->cpu);
     sim->initialized = 1;
     return 0;
@@ -92,6 +104,8 @@ int sim_reset(sim_t *sim) {
     cpu_state_reset(&sim->cpu);
     nvic_reset(&sim->nvic);
     tim2_reset(&sim->tim2);
+    usart1_reset(&sim->usart1);
+    sim_uart_output_clear(sim);
     memory_reset(&sim->memory);
     sim->stop_reason = SIM_STOP_NONE;
     sim->last_bus_result = (bus_result_t){0};
@@ -139,6 +153,7 @@ sim_stop_reason_t sim_step(sim_t *sim) {
         sim->stop_reason = SIM_STOP_UNSUPPORTED_INSTR;
         return sim->stop_reason;
     }
+    (void)sim_drain_uart_output(sim);
 
     if (!sim->cpu.handler_mode && sim->cpu.primask == 0u) {
         int irq = nvic_select_next(&sim->nvic);
@@ -153,6 +168,7 @@ sim_stop_reason_t sim_step(sim_t *sim) {
                 sim->stop_reason = SIM_STOP_UNSUPPORTED_INSTR;
                 return sim->stop_reason;
             }
+            (void)sim_drain_uart_output(sim);
         }
     }
 
@@ -163,6 +179,47 @@ sim_stop_reason_t sim_step(sim_t *sim) {
 
     sim->stop_reason = SIM_STOP_NONE;
     return sim->stop_reason;
+}
+
+size_t sim_drain_uart_output(sim_t *sim) {
+    size_t drained = 0;
+    uint8_t value = 0;
+
+    if (sim == NULL || !sim->initialized) {
+        return 0;
+    }
+
+    while (usart1_tx_pop(&sim->usart1, &value) == 0) {
+        sim_uart_output_append(sim, value);
+        drained++;
+    }
+
+    return drained;
+}
+
+const char *sim_uart_output_data(const sim_t *sim) {
+    if (sim == NULL) {
+        return "";
+    }
+
+    return sim->uart_output;
+}
+
+size_t sim_uart_output_size(const sim_t *sim) {
+    if (sim == NULL) {
+        return 0;
+    }
+
+    return sim->uart_output_size;
+}
+
+void sim_uart_output_clear(sim_t *sim) {
+    if (sim == NULL) {
+        return;
+    }
+
+    sim->uart_output_size = 0;
+    sim->uart_output[0] = '\0';
 }
 
 sim_stop_reason_t sim_run(sim_t *sim, uint64_t max_steps) {

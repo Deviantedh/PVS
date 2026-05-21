@@ -1915,6 +1915,132 @@ static int test_usart1_tx_output_fifo_order(void) {
     return usart1_tx_pop(&usart, &byte) != 0 ? 0 : 1;
 }
 
+static int test_usart1_mmio_read_write_registers(void) {
+    sim_t sim;
+    uint32_t value = 0;
+
+    if (sim_init(&sim, NULL) != 0) {
+        return 1;
+    }
+
+    if (!bus_result_is_ok(bus_write32(&sim.bus, USART1_BASE + USART1_BRR_OFFSET, 0x1234u))
+        || !bus_result_is_ok(bus_write32(&sim.bus, USART1_BASE + USART1_CR1_OFFSET, USART1_CR1_UE | USART1_CR1_TE | USART1_CR1_RE))
+        || !bus_result_is_ok(bus_write32(&sim.bus, USART1_BASE + USART1_SR_OFFSET, USART1_SR_RXNE))) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (!bus_result_is_ok(bus_read32(&sim.bus, USART1_BASE + USART1_BRR_OFFSET, &value)) || value != 0x1234u) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (!bus_result_is_ok(bus_read32(&sim.bus, USART1_BASE + USART1_CR1_OFFSET, &value))
+        || value != (USART1_CR1_UE | USART1_CR1_TE | USART1_CR1_RE)) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (!bus_result_is_ok(bus_read32(&sim.bus, USART1_BASE + USART1_SR_OFFSET, &value))
+        || value != (USART1_SR_RXNE | USART1_SR_TXE)) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    sim_destroy(&sim);
+    return 0;
+}
+
+static int test_usart1_mmio_dr_write_produces_sim_uart_output(void) {
+    sim_t sim;
+
+    if (sim_init(&sim, NULL) != 0) {
+        return 1;
+    }
+
+    if (!bus_result_is_ok(bus_write32(&sim.bus, USART1_BASE + USART1_CR1_OFFSET, USART1_CR1_UE | USART1_CR1_TE))
+        || !bus_result_is_ok(bus_write32(&sim.bus, USART1_BASE + USART1_DR_OFFSET, 'A'))) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (sim_drain_uart_output(&sim) != 1u
+        || sim_uart_output_size(&sim) != 1u
+        || sim_uart_output_data(&sim)[0] != 'A') {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    sim_destroy(&sim);
+    return 0;
+}
+
+static int test_usart1_mmio_dr_write_without_enable_has_no_output(void) {
+    sim_t sim;
+
+    if (sim_init(&sim, NULL) != 0) {
+        return 1;
+    }
+
+    if (!bus_result_is_ok(bus_write32(&sim.bus, USART1_BASE + USART1_DR_OFFSET, 'A'))
+        || sim_drain_uart_output(&sim) != 0u
+        || sim_uart_output_size(&sim) != 0u) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (!bus_result_is_ok(bus_write32(&sim.bus, USART1_BASE + USART1_CR1_OFFSET, USART1_CR1_UE))
+        || !bus_result_is_ok(bus_write32(&sim.bus, USART1_BASE + USART1_DR_OFFSET, 'B'))
+        || sim_drain_uart_output(&sim) != 0u
+        || sim_uart_output_size(&sim) != 0u) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    sim_destroy(&sim);
+    return 0;
+}
+
+static int test_usart1_firmware_str_mmio_produces_output(void) {
+    sim_t sim;
+    uint8_t firmware[40] = {0};
+
+    encode_u32le(&firmware[0], SIM_SRAM_BASE + 0x100u);
+    encode_u32le(&firmware[4], SIM_FLASH_BASE + 8u + 1u);
+    encode_u16le(&firmware[8], 0x4904u);
+    encode_u16le(&firmware[10], 0x4805u);
+    encode_u16le(&firmware[12], encode_str_imm(0u, 1u, USART1_CR1_OFFSET / 4u));
+    encode_u16le(&firmware[14], 0x2055u);
+    encode_u16le(&firmware[16], encode_str_imm(0u, 1u, USART1_DR_OFFSET / 4u));
+    encode_u16le(&firmware[18], 0xBF00u);
+    encode_u32le(&firmware[28], USART1_BASE);
+    encode_u32le(&firmware[32], USART1_CR1_UE | USART1_CR1_TE);
+
+    if (sim_init(&sim, NULL) != 0) {
+        return 1;
+    }
+
+    if (sim_load_firmware(&sim, firmware, sizeof(firmware)) != 0 || sim_reset(&sim) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    for (int i = 0; i < 6; ++i) {
+        if (sim_step(&sim) != SIM_STOP_NONE) {
+            sim_destroy(&sim);
+            return 1;
+        }
+    }
+
+    if (sim_uart_output_size(&sim) != 1u || sim_uart_output_data(&sim)[0] != 'U') {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    sim_destroy(&sim);
+    return 0;
+}
+
 int main(void) {
 #define RUN_TEST(fn) \
     do { \
@@ -1979,6 +2105,10 @@ int main(void) {
     RUN_TEST(test_usart1_dr_write_with_ue_and_te_transmits_byte);
     RUN_TEST(test_usart1_txe_stays_set_in_minimal_model);
     RUN_TEST(test_usart1_tx_output_fifo_order);
+    RUN_TEST(test_usart1_mmio_read_write_registers);
+    RUN_TEST(test_usart1_mmio_dr_write_produces_sim_uart_output);
+    RUN_TEST(test_usart1_mmio_dr_write_without_enable_has_no_output);
+    RUN_TEST(test_usart1_firmware_str_mmio_produces_output);
 
 #undef RUN_TEST
 

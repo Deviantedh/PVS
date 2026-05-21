@@ -3,6 +3,7 @@
 #include <stddef.h>
 
 #include "sim/tim2.h"
+#include "sim/usart1.h"
 
 static bus_result_t bus_result_make(
     bus_status_t status,
@@ -60,13 +61,23 @@ static int bus_tim2_offset(uint32_t addr, uint32_t *offset) {
     return *offset <= TIM2_ARR_OFFSET;
 }
 
-void bus_init(bus_t *bus, memory_t *memory, tim2_t *tim2) {
+static int bus_usart1_offset(uint32_t addr, uint32_t *offset) {
+    if (addr < USART1_BASE || offset == NULL) {
+        return 0;
+    }
+
+    *offset = addr - USART1_BASE;
+    return *offset <= USART1_CR1_OFFSET;
+}
+
+void bus_init(bus_t *bus, memory_t *memory, tim2_t *tim2, usart1_t *usart1) {
     if (bus == NULL) {
         return;
     }
 
     bus->memory = memory;
     bus->tim2 = tim2;
+    bus->usart1 = usart1;
 }
 
 bus_result_t bus_read8(bus_t *bus, uint32_t addr, uint8_t *value) {
@@ -123,6 +134,14 @@ bus_result_t bus_read32(bus_t *bus, uint32_t addr, uint32_t *value) {
         return bus_result_make(BUS_STATUS_UNMAPPED, BUS_ACCESS_READ, addr, sizeof(uint32_t));
     }
 
+    if (bus != NULL && bus->usart1 != NULL && bus_usart1_offset(addr, &offset)) {
+        if (usart1_read32(bus->usart1, offset, value) == 0) {
+            return bus_result_make(BUS_STATUS_OK, BUS_ACCESS_READ, addr, sizeof(uint32_t));
+        }
+
+        return bus_result_make(BUS_STATUS_UNMAPPED, BUS_ACCESS_READ, addr, sizeof(uint32_t));
+    }
+
     result = bus_translate(bus, addr, &ptr, sizeof(uint32_t), BUS_ACCESS_READ);
     if (result.status != BUS_STATUS_OK) {
         return result;
@@ -171,6 +190,14 @@ bus_result_t bus_write32(bus_t *bus, uint32_t addr, uint32_t value) {
 
     if (bus != NULL && bus->tim2 != NULL && bus_tim2_offset(addr, &offset)) {
         if (tim2_write32(bus->tim2, offset, value) == 0) {
+            return bus_result_make(BUS_STATUS_OK, BUS_ACCESS_WRITE, addr, sizeof(uint32_t));
+        }
+
+        return bus_result_make(BUS_STATUS_UNMAPPED, BUS_ACCESS_WRITE, addr, sizeof(uint32_t));
+    }
+
+    if (bus != NULL && bus->usart1 != NULL && bus_usart1_offset(addr, &offset)) {
+        if (usart1_write32(bus->usart1, offset, value) == 0) {
             return bus_result_make(BUS_STATUS_OK, BUS_ACCESS_WRITE, addr, sizeof(uint32_t));
         }
 
