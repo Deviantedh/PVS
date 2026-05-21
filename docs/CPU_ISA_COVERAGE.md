@@ -144,11 +144,11 @@
 | Группа | Инструкции | L1 | L2 | Примечания/упрощения | Тест |
 |---|---|---:|---:|---|---|
 | Word load/store | LDR, STR (immediate/reg) | ✅ | ✅ | strict alignment в MVP; LDR (PC-relative literal) часть минимального набора | UT/FW |
-| Byte/Halfword | LDRB/STRB, LDRH/STRH | ❌ | ⏳ | понадобится для UART/периферии | UT/FW |
+| Byte/Halfword | LDRB/STRB, LDRH/STRH | 🟨 | ⏳ | immediate-offset формы реализованы; register-offset и signed extend позже | UT/FW |
 | Signed extend | LDRSB/LDRSH | ❌ | ⏳ | полезно для libc | UT |
 | Literal loads | LDR (PC‑relative literal) | ✅ | ✅ | критично для доступа к константам; часть минимального набора | UT |
 | Multiple | LDM/STM | ❌ | ⏳ | часто используется компилятором | UT |
-| Stack | PUSH/POP | ✅ | ✅ | корректный SP, порядок слов по ARM; часть минимального набора | UT/FW |
+| Stack | PUSH/POP | ✅ | ✅ | Thumb16 T1 для R0-R7 + LR/PC; часть минимального набора | UT/FW |
 
 ---
 
@@ -158,7 +158,7 @@
 |---|---|---:|---:|---|---|
 | Unconditional | B | ✅ | ✅ | PC update, Thumb bit; часть минимального набора | UT |
 | Conditional | B<cond> | ✅ | ✅ | условия по APSR; часть минимального набора | UT |
-| Call/Return | BL, BX | ✅ | ✅ | BL формирует LR; BX — переход с bit0 Thumb; часть минимального набора | UT/FW |
+| Call/Return | BL, BX | ✅ | ✅ | BL immediate T1 формирует LR; BX — переход с bit0 Thumb; часть минимального набора | UT/FW |
 | CBZ/CBNZ | CBZ/CBNZ | ❌ | ⏳ | часто в оптимизациях | UT |
 | IT blocks | IT + условные внутри | ❌ | ⏳ | сложнее, но важно для Thumb‑2 | UT/FW |
 
@@ -168,7 +168,7 @@
 
 | Группа | Инструкции | L1 | L2 | Примечания/упрощения | Тест |
 |---|---|---:|---:|---|---|
-| No‑op | NOP | ⏳ | ✅ | просто | UT |
+| No‑op | NOP | ✅ | ✅ | `0xBF00` реализован | UT |
 | Breakpoint | BKPT | 🟨 | ✅ | MVP: останавливаем с STOP_OK/STOP_BREAK | FW |
 | Supervisor call | SVC | ⏳ | ✅ | нужен для тестов исключений | FW |
 | Interrupt control | CPSID/CPSIE | 🟨 | ⏳ | MVP: PRIMASK только | UT/FW |
@@ -186,7 +186,7 @@
 | Exception entry | ⏳ | ✅ | stacking базового фрейма на MSP | FW |
 | Exception return | ⏳ | ✅ | MVP: только Thread mode + MSP | FW |
 | EXC_RETURN variants | ❌ | ⏳ | PSP/Handler nesting позже | FW |
-| PRIMASK | ⏳ | ✅ | блокировка IRQ | FW |
+| PRIMASK | 🟨 | ✅ | поле и блокировка доставки IRQ реализованы; CPSID/CPSIE как инструкции позже | FW |
 | BASEPRI | ❌ | ⏳ | позже | FW |
 
 ---

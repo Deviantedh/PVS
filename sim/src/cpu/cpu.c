@@ -85,6 +85,17 @@ static int cpu_is_exc_return(uint32_t value) {
     return value == CPU_EXC_RETURN_THREAD_MSP;
 }
 
+static uint32_t cpu_count_bits(uint32_t value) {
+    uint32_t count = 0;
+
+    while (value != 0u) {
+        count += value & 0x1u;
+        value >>= 1;
+    }
+
+    return count;
+}
+
 static cpu_step_result_t cpu_exception_return(sim_t *sim) {
     bus_result_t bus_result = {0};
     uint32_t sp;
@@ -246,6 +257,87 @@ static cpu_step_result_t cpu_execute_thumb16(sim_t *sim, uint16_t instr) {
         return cpu_step_result_make(CPU_STEP_OK, bus_result);
     }
 
+    if ((instr & 0xFE00u) == 0xB400u) {
+        uint32_t register_list = instr & 0x00FFu;
+        uint32_t include_lr = (instr >> 8) & 0x1u;
+        uint32_t register_count = cpu_count_bits(register_list) + include_lr;
+        uint32_t addr;
+
+        if (register_count == 0u) {
+            return cpu_step_result_make(CPU_STEP_UNSUPPORTED, bus_result);
+        }
+
+        addr = sim->cpu.msp - (register_count * 4u);
+        for (uint32_t reg = 0; reg < 8u; ++reg) {
+            if ((register_list & (1u << reg)) == 0u) {
+                continue;
+            }
+
+            bus_result = bus_write32(&sim->bus, addr, sim->cpu.r[reg]);
+            if (!bus_result_is_ok(bus_result)) {
+                return cpu_step_result_make(CPU_STEP_FAULT, bus_result);
+            }
+            addr += 4u;
+        }
+
+        if (include_lr != 0u) {
+            bus_result = bus_write32(&sim->bus, addr, sim->cpu.lr);
+            if (!bus_result_is_ok(bus_result)) {
+                return cpu_step_result_make(CPU_STEP_FAULT, bus_result);
+            }
+        }
+
+        sim->cpu.msp -= register_count * 4u;
+        sim->cpu.pc += 2u;
+        return cpu_step_result_make(CPU_STEP_OK, bus_result);
+    }
+
+    if ((instr & 0xFE00u) == 0xBC00u) {
+        uint32_t register_list = instr & 0x00FFu;
+        uint32_t include_pc = (instr >> 8) & 0x1u;
+        uint32_t register_count = cpu_count_bits(register_list) + include_pc;
+        uint32_t addr = sim->cpu.msp;
+
+        if (register_count == 0u) {
+            return cpu_step_result_make(CPU_STEP_UNSUPPORTED, bus_result);
+        }
+
+        for (uint32_t reg = 0; reg < 8u; ++reg) {
+            if ((register_list & (1u << reg)) == 0u) {
+                continue;
+            }
+
+            bus_result = bus_read32(&sim->bus, addr, &sim->cpu.r[reg]);
+            if (!bus_result_is_ok(bus_result)) {
+                return cpu_step_result_make(CPU_STEP_FAULT, bus_result);
+            }
+            addr += 4u;
+        }
+
+        if (include_pc != 0u) {
+            uint32_t target = 0;
+
+            bus_result = bus_read32(&sim->bus, addr, &target);
+            if (!bus_result_is_ok(bus_result)) {
+                return cpu_step_result_make(CPU_STEP_FAULT, bus_result);
+            }
+
+            if ((target & 0x1u) == 0u) {
+                return cpu_step_result_make(
+                    CPU_STEP_FAULT,
+                    (bus_result_t){ .status = BUS_STATUS_UNALIGNED, .access = BUS_ACCESS_READ, .addr = target, .width = 2u }
+                );
+            }
+
+            sim->cpu.pc = target;
+        } else {
+            sim->cpu.pc += 2u;
+        }
+
+        sim->cpu.msp += register_count * 4u;
+        return cpu_step_result_make(CPU_STEP_OK, bus_result);
+    }
+
     if ((instr & 0xF800u) == 0x4800u) {
         uint32_t rt = (instr >> 8) & 0x7u;
         uint32_t imm8 = instr & 0x00FFu;
@@ -385,6 +477,27 @@ static cpu_step_result_t cpu_execute_thumb16(sim_t *sim, uint16_t instr) {
     return cpu_step_result_make(CPU_STEP_UNSUPPORTED, bus_result);
 }
 
+static cpu_step_result_t cpu_execute_thumb32_bl(sim_t *sim, uint16_t first, uint16_t second) {
+    bus_result_t bus_result = {0};
+    uint32_t s = (first >> 10) & 0x1u;
+    uint32_t imm10 = first & 0x03FFu;
+    uint32_t j1 = (second >> 13) & 0x1u;
+    uint32_t j2 = (second >> 11) & 0x1u;
+    uint32_t imm11 = second & 0x07FFu;
+    uint32_t i1 = (~(j1 ^ s)) & 0x1u;
+    uint32_t i2 = (~(j2 ^ s)) & 0x1u;
+    uint32_t imm25 = (s << 24) | (i1 << 23) | (i2 << 22) | (imm10 << 12) | (imm11 << 1);
+    int32_t offset = ((int32_t)(imm25 << 7)) >> 7;
+
+    sim->cpu.lr = sim->cpu.pc + 4u;
+    sim->cpu.pc = (uint32_t)((int32_t)sim->cpu.pc + 4 + offset);
+    return cpu_step_result_make(CPU_STEP_OK, bus_result);
+}
+
+static int cpu_is_thumb32_bl(uint16_t first, uint16_t second) {
+    return (first & 0xF800u) == 0xF000u && (second & 0xD000u) == 0xD000u;
+}
+
 void cpu_state_reset(cpu_state_t *cpu) {
     if (cpu == NULL) {
         return;
@@ -395,6 +508,7 @@ void cpu_state_reset(cpu_state_t *cpu) {
 
 cpu_step_result_t cpu_step(sim_t *sim) {
     uint16_t instr = 0;
+    uint16_t second = 0;
     bus_result_t bus_result;
 
     if (sim == NULL || !sim->initialized) {
@@ -415,6 +529,20 @@ cpu_step_result_t cpu_step(sim_t *sim) {
     bus_result = bus_read16(&sim->bus, sim->cpu.pc & ~0x1u, &instr);
     if (!bus_result_is_ok(bus_result)) {
         return cpu_step_result_make(CPU_STEP_FAULT, bus_result);
+    }
+
+    if ((instr & 0xF800u) == 0xF000u) {
+        bus_result = bus_read16(&sim->bus, (sim->cpu.pc & ~0x1u) + 2u, &second);
+        if (!bus_result_is_ok(bus_result)) {
+            return cpu_step_result_make(CPU_STEP_FAULT, bus_result);
+        }
+
+        sim->cpu.instr_count++;
+        if (cpu_is_thumb32_bl(instr, second)) {
+            return cpu_execute_thumb32_bl(sim, instr, second);
+        }
+
+        return cpu_step_result_make(CPU_STEP_UNSUPPORTED, bus_result);
     }
 
     sim->cpu.instr_count++;
