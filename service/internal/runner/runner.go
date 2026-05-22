@@ -43,6 +43,7 @@ func (r *SimulatorRunner) Run(ctx context.Context, job model.Job) (model.Result,
 	if job.JobID == "" {
 		result.Status = model.StatusBadInput
 		result.ExitCode = 13
+		result.ErrorCode = model.ErrorInvalidJob
 		result.Error = "job_id is required"
 		return result, nil
 	}
@@ -51,6 +52,7 @@ func (r *SimulatorRunner) Run(ctx context.Context, job model.Job) (model.Result,
 	if err != nil {
 		result.Status = model.StatusBadInput
 		result.ExitCode = 13
+		result.ErrorCode = model.ErrorDecodeFirmware
 		result.Error = fmt.Sprintf("decode firmware: %v", err)
 		return result, nil
 	}
@@ -116,12 +118,14 @@ func (r *SimulatorRunner) Run(ctx context.Context, job model.Job) (model.Result,
 	if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
 		result.Status = model.StatusTimeout
 		result.ExitCode = 10
+		result.ErrorCode = model.ErrorSubprocessTimeout
 		result.Error = "simulator timeout"
 		return result, nil
 	}
 
 	exitCode := commandExitCode(err)
-	if parsed, ok := readSimulatorResult(jsonResultPath); ok {
+	parsed, parseErr := readSimulatorResult(jsonResultPath)
+	if parseErr == nil {
 		result = mergeResult(result, parsed)
 	}
 	if result.JobID == "" {
@@ -137,14 +141,45 @@ func (r *SimulatorRunner) Run(ctx context.Context, job model.Job) (model.Result,
 		result.UARTOutput = stdout.String()
 	}
 
+	if err != nil && !isExitError(err) && parseErr != nil {
+		result.ExitCode = 12
+		result.Status = model.StatusCrash
+		result.ErrorCode = model.ErrorSubprocessStart
+		result.Error = fmt.Sprintf("start simulator: %v", err)
+		return result, nil
+	}
+
+	if parseErr != nil {
+		result.ExitCode = exitCode
+		if result.ExitCode == 0 {
+			result.ExitCode = 12
+			result.Status = model.StatusCrash
+		} else {
+			result.Status = statusFromExitCode(result.ExitCode)
+		}
+		result.ErrorCode = simulatorResultErrorCode(parseErr)
+		if code := statusErrorCode(result.Status); code == model.ErrorUnsupportedInstr || code == model.ErrorSimulatorFault {
+			result.ErrorCode = code
+		}
+		result.Error = parseErr.Error()
+		if err != nil {
+			result.Error = fmt.Sprintf("%s: %v", result.Error, err)
+		}
+		return result, nil
+	}
+
 	if err != nil && result.Status == model.StatusCrash {
 		result.ExitCode = exitCode
 		result.Status = statusFromExitCode(exitCode)
+		result.ErrorCode = statusErrorCode(result.Status)
 		result.Error = err.Error()
 	}
 	if err == nil && result.Status == model.StatusCrash {
 		result.ExitCode = 0
 		result.Status = model.StatusOK
+	}
+	if result.ErrorCode == "" {
+		result.ErrorCode = statusErrorCode(result.Status)
 	}
 
 	return result, nil
@@ -160,6 +195,11 @@ func commandExitCode(err error) int {
 		return exitErr.ExitCode()
 	}
 	return 12
+}
+
+func isExitError(err error) bool {
+	var exitErr *exec.ExitError
+	return errors.As(err, &exitErr)
 }
 
 func statusFromExitCode(code int) string {
@@ -179,17 +219,47 @@ func statusFromExitCode(code int) string {
 	}
 }
 
-func readSimulatorResult(path string) (model.Result, bool) {
+func statusErrorCode(status string) string {
+	switch status {
+	case model.StatusOK:
+		return ""
+	case model.StatusTimeout:
+		return model.ErrorSubprocessTimeout
+	case model.StatusUnsupportedInstr:
+		return model.ErrorUnsupportedInstr
+	case model.StatusFault:
+		return model.ErrorSimulatorFault
+	case model.StatusBadInput:
+		return model.ErrorInvalidJob
+	default:
+		return model.ErrorSimulatorCrash
+	}
+}
+
+func simulatorResultErrorCode(err error) string {
+	if errors.Is(err, os.ErrNotExist) {
+		return model.ErrorMissingSimulatorJSON
+	}
+	return model.ErrorInvalidSimulatorJSON
+}
+
+func readSimulatorResult(path string) (model.Result, error) {
 	data, err := os.ReadFile(path)
-	if err != nil || len(data) == 0 {
-		return model.Result{}, false
+	if err != nil {
+		return model.Result{}, fmt.Errorf("read simulator result: %w", err)
+	}
+	if len(data) == 0 {
+		return model.Result{}, errors.New("read simulator result: empty result")
 	}
 
 	var result model.Result
 	if err := json.Unmarshal(data, &result); err != nil {
-		return model.Result{}, false
+		return model.Result{}, fmt.Errorf("decode simulator result: %w", err)
 	}
-	return result, true
+	if result.Status == "" {
+		return model.Result{}, errors.New("decode simulator result: status is required")
+	}
+	return result, nil
 }
 
 func mergeResult(base model.Result, parsed model.Result) model.Result {
@@ -207,6 +277,9 @@ func mergeResult(base model.Result, parsed model.Result) model.Result {
 	}
 	if parsed.Error == "" {
 		parsed.Error = base.Error
+	}
+	if parsed.ErrorCode == "" {
+		parsed.ErrorCode = base.ErrorCode
 	}
 	return parsed
 }

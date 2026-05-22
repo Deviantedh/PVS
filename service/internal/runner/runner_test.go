@@ -33,6 +33,9 @@ func TestRunUsesSimulatorContract(t *testing.T) {
 	if result.UARTOutput != "OK" || result.InstructionsExecuted != 42 {
 		t.Fatalf("simulator result was not parsed: %+v", result)
 	}
+	if result.ErrorCode != "" || result.Error != "" {
+		t.Fatalf("success should not carry error details: %+v", result)
+	}
 }
 
 func TestRunTimesOutSimulator(t *testing.T) {
@@ -51,6 +54,9 @@ func TestRunTimesOutSimulator(t *testing.T) {
 	if result.Status != model.StatusTimeout || result.ExitCode != 10 {
 		t.Fatalf("expected timeout result, got %+v", result)
 	}
+	if result.ErrorCode != model.ErrorSubprocessTimeout {
+		t.Fatalf("expected timeout error code, got %+v", result)
+	}
 }
 
 func TestRunRejectsBadFirmware(t *testing.T) {
@@ -60,6 +66,87 @@ func TestRunRejectsBadFirmware(t *testing.T) {
 	}
 	if result.Status != model.StatusBadInput || result.ExitCode != 13 {
 		t.Fatalf("expected bad input, got %+v", result)
+	}
+	if result.ErrorCode != model.ErrorDecodeFirmware {
+		t.Fatalf("expected decode firmware error code, got %+v", result)
+	}
+}
+
+func TestRunRejectsMissingJobID(t *testing.T) {
+	result, err := New(Config{}).Run(context.Background(), model.Job{Firmware: base64.StdEncoding.EncodeToString([]byte{0x01})})
+	if err != nil {
+		t.Fatalf("Run returned setup error: %v", err)
+	}
+	if result.Status != model.StatusBadInput || result.ExitCode != 13 || result.ErrorCode != model.ErrorInvalidJob {
+		t.Fatalf("expected invalid job result, got %+v", result)
+	}
+}
+
+func TestRunReportsSimulatorExecutableError(t *testing.T) {
+	job := model.Job{
+		JobID:    "job-no-exe",
+		Firmware: base64.StdEncoding.EncodeToString([]byte{0x01}),
+	}
+
+	result, err := New(Config{SimulatorPath: "/definitely/not/pvs_sim_cli"}).Run(context.Background(), job)
+	if err != nil {
+		t.Fatalf("Run returned setup error: %v", err)
+	}
+	if result.Status != model.StatusCrash || result.ExitCode != 12 || result.ErrorCode != model.ErrorSubprocessStart {
+		t.Fatalf("expected subprocess start failure, got %+v", result)
+	}
+}
+
+func TestRunReportsInvalidSimulatorResult(t *testing.T) {
+	job := model.Job{
+		JobID:    "job-invalid-result",
+		Firmware: base64.StdEncoding.EncodeToString([]byte{0x01}),
+	}
+
+	result, err := New(fakeConfig(t, map[string]string{"PVS_FAKE_INVALID_JSON": "1"})).Run(context.Background(), job)
+	if err != nil {
+		t.Fatalf("Run returned setup error: %v", err)
+	}
+	if result.Status != model.StatusCrash || result.ExitCode != 12 || result.ErrorCode != model.ErrorInvalidSimulatorJSON {
+		t.Fatalf("expected invalid simulator result, got %+v", result)
+	}
+}
+
+func TestRunReportsMissingSimulatorResult(t *testing.T) {
+	job := model.Job{
+		JobID:    "job-missing-result",
+		Firmware: base64.StdEncoding.EncodeToString([]byte{0x01}),
+	}
+
+	result, err := New(fakeConfig(t, map[string]string{"PVS_FAKE_NO_JSON": "1"})).Run(context.Background(), job)
+	if err != nil {
+		t.Fatalf("Run returned setup error: %v", err)
+	}
+	if result.Status != model.StatusCrash || result.ExitCode != 12 || result.ErrorCode != model.ErrorMissingSimulatorJSON {
+		t.Fatalf("expected missing simulator result, got %+v", result)
+	}
+}
+
+func TestRunClassifiesSimulatorFaultAndUnsupported(t *testing.T) {
+	job := model.Job{
+		JobID:    "job-fault",
+		Firmware: base64.StdEncoding.EncodeToString([]byte{0x01}),
+	}
+
+	result, err := New(fakeConfig(t, map[string]string{"PVS_FAKE_STATUS": model.StatusFault, "PVS_FAKE_EXIT_CODE": "12"})).Run(context.Background(), job)
+	if err != nil {
+		t.Fatalf("Run returned setup error: %v", err)
+	}
+	if result.Status != model.StatusFault || result.ExitCode != 12 || result.ErrorCode != model.ErrorSimulatorFault {
+		t.Fatalf("expected simulator fault, got %+v", result)
+	}
+
+	result, err = New(fakeConfig(t, map[string]string{"PVS_FAKE_STATUS": model.StatusUnsupportedInstr, "PVS_FAKE_EXIT_CODE": "11"})).Run(context.Background(), job)
+	if err != nil {
+		t.Fatalf("Run returned setup error: %v", err)
+	}
+	if result.Status != model.StatusUnsupportedInstr || result.ExitCode != 11 || result.ErrorCode != model.ErrorUnsupportedInstr {
+		t.Fatalf("expected unsupported instruction, got %+v", result)
 	}
 }
 
@@ -106,17 +193,34 @@ func TestHelperProcess(t *testing.T) {
 		os.Exit(13)
 	}
 
+	if os.Getenv("PVS_FAKE_NO_JSON") == "1" {
+		os.Exit(0)
+	}
+
+	if os.Getenv("PVS_FAKE_INVALID_JSON") == "1" {
+		_ = os.WriteFile(jsonResultPath, []byte("{not-json"), 0o600)
+		os.Exit(0)
+	}
+
 	instructions, _ := strconv.ParseUint(maxInstr, 10, 64)
+	status := os.Getenv("PVS_FAKE_STATUS")
+	if status == "" {
+		status = model.StatusOK
+	}
+	exitCode := 0
+	if code := os.Getenv("PVS_FAKE_EXIT_CODE"); code != "" {
+		exitCode, _ = strconv.Atoi(code)
+	}
 	data, _ := json.Marshal(model.Result{
-		Status:               model.StatusOK,
-		ExitCode:             0,
+		Status:               status,
+		ExitCode:             exitCode,
 		UARTOutput:           "OK",
 		InstructionsExecuted: instructions,
 	})
 	if err := os.WriteFile(jsonResultPath, data, 0o600); err != nil {
 		os.Exit(12)
 	}
-	os.Exit(0)
+	os.Exit(exitCode)
 }
 
 func argValue(args []string, key string) string {

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -31,10 +32,15 @@ func main() {
 
 	job, err := readJob(jobPath)
 	if err != nil {
+		errorCode := model.ErrorDecodeJob
+		if errors.Is(err, os.ErrNotExist) {
+			errorCode = model.ErrorReadJob
+		}
 		writeResult(model.Result{
-			Status:   model.StatusBadInput,
-			ExitCode: 13,
-			Error:    err.Error(),
+			Status:    model.StatusBadInput,
+			ExitCode:  13,
+			ErrorCode: errorCode,
+			Error:     err.Error(),
 		}, pretty)
 		os.Exit(13)
 	}
@@ -42,10 +48,11 @@ func main() {
 	result, err := runner.New(runner.Config{SimulatorPath: simulatorPath}).Run(ctx, job)
 	if err != nil {
 		result = model.Result{
-			JobID:    job.JobID,
-			Status:   model.StatusCrash,
-			ExitCode: 12,
-			Error:    err.Error(),
+			JobID:     job.JobID,
+			Status:    model.StatusCrash,
+			ExitCode:  12,
+			ErrorCode: model.ErrorSimulatorCrash,
+			Error:     err.Error(),
 		}
 	}
 
