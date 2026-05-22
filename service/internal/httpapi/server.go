@@ -27,9 +27,16 @@ func NewServer(runner Runner, logger *slog.Logger) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	return NewServerWithSessionManager(runner, session.NewReplayManager(runner), logger)
+}
+
+func NewServerWithSessionManager(runner Runner, sessions *session.Manager, logger *slog.Logger) *Server {
+	if logger == nil {
+		logger = slog.Default()
+	}
 	return &Server{
 		runner:   runner,
-		sessions: session.NewManager(runner),
+		sessions: sessions,
 		logger:   logger,
 	}
 }
@@ -111,7 +118,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	state, err := s.sessions.Create(job)
+	state, err := s.sessions.Create(r.Context(), job)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errorState("", err.Error(), model.ErrorSimulatorCrash))
 		return
@@ -215,7 +222,7 @@ func (s *Server) handleSessionStop(w http.ResponseWriter, r *http.Request, id st
 		writeJSON(w, http.StatusMethodNotAllowed, errorState(id, "method not allowed", model.ErrorInvalidJob))
 		return
 	}
-	state, err := s.sessions.Stop(id)
+	state, err := s.sessions.Stop(r.Context(), id)
 	if err != nil {
 		writeSessionError(w, id, err)
 		return

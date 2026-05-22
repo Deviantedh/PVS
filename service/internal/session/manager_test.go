@@ -18,8 +18,8 @@ func TestManagerPublishesSnapshotsAndAppliesPinOverrides(t *testing.T) {
 			},
 		},
 	}
-	manager := NewManager(runner)
-	state, err := manager.Create(model.Job{
+	manager := NewReplayManager(runner)
+	state, err := manager.Create(context.Background(), model.Job{
 		JobID:    "job",
 		Firmware: base64.StdEncoding.EncodeToString([]byte{0x01}),
 	})

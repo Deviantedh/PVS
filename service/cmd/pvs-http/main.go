@@ -10,17 +10,21 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Deviantedh/PVS/service/internal/debugbridge"
 	"github.com/Deviantedh/PVS/service/internal/httpapi"
 	"github.com/Deviantedh/PVS/service/internal/runner"
+	"github.com/Deviantedh/PVS/service/internal/session"
 )
 
 func main() {
 	var addr string
 	var simulatorPath string
+	var debuggerPath string
 	var workDir string
 
 	flag.StringVar(&addr, "addr", "127.0.0.1:8080", "HTTP listen address")
 	flag.StringVar(&simulatorPath, "simulator", "", "path to simulator executable")
+	flag.StringVar(&debuggerPath, "debugger", "", "path to stateful simulator debug executable")
 	flag.StringVar(&workDir, "workdir", "", "working directory for simulator subprocess")
 	flag.Parse()
 
@@ -29,7 +33,11 @@ func main() {
 		SimulatorPath: simulatorPath,
 		WorkDir:       workDir,
 	})
-	api := httpapi.NewServer(simRunner, logger)
+	debugFactory := debugbridge.NewFactory(debugbridge.Config{
+		DebuggerPath:  debuggerPath,
+		SimulatorPath: simulatorPath,
+	})
+	api := httpapi.NewServerWithSessionManager(simRunner, session.NewManager(debugFactory), logger)
 
 	server := &http.Server{
 		Addr:              addr,

@@ -119,11 +119,11 @@ MVP endpoints:
 - Нет загрузки ELF, только raw firmware через backend-контракт.
 - Статический frontend показывает только те поля, которые уже возвращает `model.Result`.
 - `pins` пока строится статически для ограниченного набора Blue Pill пинов; `mode` обычно `unknown`, `level` обычно `null`.
-- Session `step/run` пока replay-backed: backend повторно запускает CLI с новым лимитом инструкций, а не держит C simulator state in-process.
+- Session `step/run` использует stateful process-backed bridge `pvs_sim_debug`: одна session держит один живой `sim_t` в отдельном C-процессе.
 - Pin control пока меняет только session snapshot overlay и не влияет на исполнение firmware.
 
 ## Ближайшие шаги
 
-1. Добавить in-process simulator/debug bridge или CLI mode, который реально сохраняет состояние между step.
+1. Добавить lifecycle cleanup/delete для debug sessions.
 2. Добавить GPIO/MMIO-модель и связать pin control с реальными входами.
 3. Добавить WebSocket только если SSE перестанет хватать.

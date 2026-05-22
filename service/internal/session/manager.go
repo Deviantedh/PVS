@@ -18,42 +18,63 @@ type Runner interface {
 	Run(ctx context.Context, job model.Job) (model.Result, error)
 }
 
+type Engine interface {
+	Step(ctx context.Context, steps uint64) (model.SessionState, error)
+	Run(ctx context.Context, maxInstructions uint64) (model.SessionState, error)
+	Stop(ctx context.Context) (model.SessionState, error)
+	Close() error
+}
+
+type EngineFactory interface {
+	Create(ctx context.Context, job model.Job) (Engine, model.SessionState, error)
+}
+
 type Manager struct {
-	runner   Runner
+	factory  EngineFactory
 	mu       sync.Mutex
 	sessions map[string]*Session
 }
 
 type Session struct {
-	id                 string
-	job                model.Job
-	targetInstructions uint64
-	state              model.SessionState
-	pinOverrides       map[string]model.PinControlRequest
-	subscribers        map[chan model.SessionState]struct{}
+	id           string
+	engine       Engine
+	state        model.SessionState
+	pinOverrides map[string]model.PinControlRequest
+	subscribers  map[chan model.SessionState]struct{}
 }
 
-func NewManager(runner Runner) *Manager {
+func NewManager(factory EngineFactory) *Manager {
 	return &Manager{
-		runner:   runner,
+		factory:  factory,
 		sessions: make(map[string]*Session),
 	}
 }
 
-func (m *Manager) Create(job model.Job) (model.SessionState, error) {
+func NewReplayManager(runner Runner) *Manager {
+	return NewManager(replayFactory{runner: runner})
+}
+
+func (m *Manager) Create(ctx context.Context, job model.Job) (model.SessionState, error) {
 	id, err := newID()
 	if err != nil {
 		return model.SessionState{}, err
 	}
 
-	state := model.SessionState{
-		SessionID: id,
-		Status:    model.SessionIdle,
-		Pins:      []model.PinSnapshot{},
+	engine, state, err := m.factory.Create(ctx, job)
+	if err != nil {
+		return model.SessionState{}, err
 	}
+	state.SessionID = id
+	if state.Status == "" {
+		state.Status = model.SessionIdle
+	}
+	if state.Pins == nil {
+		state.Pins = []model.PinSnapshot{}
+	}
+
 	session := &Session{
 		id:           id,
-		job:          job,
+		engine:       engine,
 		state:        state,
 		pinOverrides: make(map[string]model.PinControlRequest),
 		subscribers:  make(map[chan model.SessionState]struct{}),
@@ -62,7 +83,7 @@ func (m *Manager) Create(job model.Job) (model.SessionState, error) {
 	m.mu.Lock()
 	m.sessions[id] = session
 	m.mu.Unlock()
-	return state, nil
+	return cloneState(state), nil
 }
 
 func (m *Manager) Get(id string) (model.SessionState, error) {
@@ -80,28 +101,24 @@ func (m *Manager) Step(ctx context.Context, id string, steps uint64) (model.Sess
 	if steps == 0 {
 		steps = 1
 	}
-	return m.execute(ctx, id, steps, false)
+	return m.execute(ctx, id, func(engine Engine) (model.SessionState, error) {
+		return engine.Step(ctx, steps)
+	})
 }
 
 func (m *Manager) Run(ctx context.Context, id string, maxInstructions uint64) (model.SessionState, error) {
 	if maxInstructions == 0 {
 		maxInstructions = defaultRunInstructions
 	}
-	return m.execute(ctx, id, maxInstructions, true)
+	return m.execute(ctx, id, func(engine Engine) (model.SessionState, error) {
+		return engine.Run(ctx, maxInstructions)
+	})
 }
 
-func (m *Manager) Stop(id string) (model.SessionState, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	session, ok := m.sessions[id]
-	if !ok {
-		return model.SessionState{}, ErrNotFound
-	}
-	session.state.Status = model.SessionStopped
-	state := cloneState(session.state)
-	m.publishLocked(session, state)
-	return state, nil
+func (m *Manager) Stop(ctx context.Context, id string) (model.SessionState, error) {
+	return m.execute(ctx, id, func(engine Engine) (model.SessionState, error) {
+		return engine.Stop(ctx)
+	})
 }
 
 func (m *Manager) SetPin(id string, name string, request model.PinControlRequest) (model.SessionState, error) {
@@ -143,7 +160,7 @@ func (m *Manager) Subscribe(id string) (<-chan model.SessionState, func(), error
 	return ch, cancel, nil
 }
 
-func (m *Manager) execute(ctx context.Context, id string, count uint64, absolute bool) (model.SessionState, error) {
+func (m *Manager) execute(ctx context.Context, id string, fn func(Engine) (model.SessionState, error)) (model.SessionState, error) {
 	m.mu.Lock()
 	session, ok := m.sessions[id]
 	if !ok {
@@ -153,19 +170,10 @@ func (m *Manager) execute(ctx context.Context, id string, count uint64, absolute
 	session.state.Status = model.SessionRunning
 	runningState := cloneState(session.state)
 	m.publishLocked(session, runningState)
-
-	target := session.targetInstructions + count
-	if absolute {
-		target = count
-	}
-	if target == 0 {
-		target = 1
-	}
-	job := session.job
-	job.Config.MaxInstructions = target
+	engine := session.engine
 	m.mu.Unlock()
 
-	result, err := m.runner.Run(ctx, job)
+	state, err := fn(engine)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -182,32 +190,12 @@ func (m *Manager) execute(ctx context.Context, id string, count uint64, absolute
 		return state, nil
 	}
 
-	session.targetInstructions = target
-	session.state = stateFromResult(id, result)
-	session.state.Pins = applyPinOverrides(session.state.Pins, session.pinOverrides)
-	state := cloneState(session.state)
-	m.publishLocked(session, state)
-	return state, nil
-}
-
-func stateFromResult(id string, result model.Result) model.SessionState {
-	status := model.SessionStopped
-	if result.Status != model.StatusOK {
-		status = model.SessionFailed
-	}
-
-	return model.SessionState{
-		SessionID:            id,
-		Status:               status,
-		StopReason:           result.Status,
-		UARTOutput:           result.UARTOutput,
-		InstructionsExecuted: result.InstructionsExecuted,
-		CPU:                  result.CPU,
-		Peripherals:          result.Peripherals,
-		Pins:                 result.Pins,
-		ErrorCode:            result.ErrorCode,
-		Error:                result.Error,
-	}
+	state.SessionID = id
+	state.Pins = applyPinOverrides(state.Pins, session.pinOverrides)
+	session.state = state
+	out := cloneState(session.state)
+	m.publishLocked(session, out)
+	return out, nil
 }
 
 func applyPinOverrides(pins []model.PinSnapshot, overrides map[string]model.PinControlRequest) []model.PinSnapshot {

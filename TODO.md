@@ -2,8 +2,9 @@
 
 ## Ближайшие задачи
 
-- Подключить GPIO/MMIO-модель к pin snapshot
-- Заменить replay-backed session step/run на stateful debug bridge к симулятору
+- Подключить минимальную GPIO/MMIO-модель к pin snapshot и pin control
+- Добавить lifecycle cleanup/delete endpoint для stateful debug sessions
+- Привязать pin control из session API к реальному GPIO input path симулятора
 - При желании добавить CLI smoke test в `CTest`
 - Синхронизировать `CPU_ISA_COVERAGE.md` с фактической реализацией CPU
 - Добавить `--version` в CLI
@@ -24,7 +25,7 @@
 - nested interrupts
 - дополнительные Thumb-инструкции по мере необходимости
 - Go-микросервис: добавить реальную KeyDB-интеграцию
-- Добавить live events/WebSocket для step/debug режима
+- При желании заменить/дополнить SSE на WebSocket для live debug режима
 - `KeyDB`
 - `OpenTelemetry`
 
@@ -53,3 +54,4 @@
 - Result snapshot для CPU/peripherals в CLI, Go runner и HTTP API
 - Минимальный pin snapshot и отображение pins в GUI
 - Первый live/session API с SSE events и session-local pin overlay
+- Stateful process-backed debug bridge `pvs_sim_debug`

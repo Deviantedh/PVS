@@ -52,9 +52,9 @@ POST /api/run
 
 ```sh
 cd service
-go run ./cmd/pvs-http --simulator ../build/sim/pvs_sim_cli --addr 127.0.0.1:8080
+go run ./cmd/pvs-http --simulator ../build/sim/pvs_sim_cli --debugger ../build/sim/pvs_sim_debug --addr 127.0.0.1:8080
 ```
 
 После этого открыть `gui/index.html`, оставить `Backend URL` равным `http://127.0.0.1:8080/api/run` и нажать `Run simulator`.
 
-Для live/session flow нажать `Create session`, затем `Step` или `Run session`. Клик по пину отправляет минимальный pin control request. На текущем этапе это session-local overlay и он не влияет на C-симулятор, потому что GPIO input path еще не реализован.
+Для live/session flow нажать `Create session`, затем `Step` или `Run session`. Эти команды идут в живой `pvs_sim_debug` process, который держит состояние `sim_t` между запросами. Клик по пину отправляет минимальный pin control request. На текущем этапе это session-local overlay и он не влияет на C-симулятор, потому что GPIO input path еще не реализован.

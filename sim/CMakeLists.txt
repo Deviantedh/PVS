@@ -38,6 +38,9 @@ target_compile_options(pvs_sim
 add_executable(pvs_sim_cli src/cli.c)
 target_link_libraries(pvs_sim_cli PRIVATE pvs_sim)
 
+add_executable(pvs_sim_debug src/debug.c)
+target_link_libraries(pvs_sim_debug PRIVATE pvs_sim)
+
 if(PVS_BUILD_TESTS)
     add_executable(pvs_sim_smoke_test tests/smoke_test.c)
     target_link_libraries(pvs_sim_smoke_test PRIVATE pvs_sim)

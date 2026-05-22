@@ -52,7 +52,7 @@
 
 ```sh
 go run ./service/cmd/pvs-runner --simulator ./build-ninja/sim/pvs_sim_cli --job job.json
-go run ./service/cmd/pvs-http --simulator ./build/sim/pvs_sim_cli --addr 127.0.0.1:8080
+go run ./service/cmd/pvs-http --simulator ./build/sim/pvs_sim_cli --debugger ./build/sim/pvs_sim_debug --addr 127.0.0.1:8080
 ```
 
 ## Как запускать
@@ -110,7 +110,7 @@ go run ./cmd/pvs-runner --simulator ../build/sim/pvs_sim_cli --job job.json
 
 ```sh
 cd service
-go run ./cmd/pvs-http --simulator ../build/sim/pvs_sim_cli --addr 127.0.0.1:8080
+go run ./cmd/pvs-http --simulator ../build/sim/pvs_sim_cli --debugger ../build/sim/pvs_sim_debug --addr 127.0.0.1:8080
 ```
 
 MVP endpoint:
@@ -134,7 +134,7 @@ POST /api/run
 ## Что еще не завершено
 
 - полноценная GPIO/MMIO-модель и реальные уровни пинов вместо `mode: "unknown"` / `level: null`
-- stateful in-process debug engine вместо replay-backed session step/run
+- stateful debug bridge сейчас process-backed; in-process C bridge можно рассмотреть позже, если понадобится меньше overhead
 - `USART1 RX` и IRQ от USART
 - GPIO/pin model для визуализации платы
 - KeyDB/OpenTelemetry интеграция из исходного большого плана
