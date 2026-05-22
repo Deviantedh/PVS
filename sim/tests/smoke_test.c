@@ -2866,6 +2866,53 @@ static int test_usart1_firmware_str_mmio_produces_output(void) {
     return 0;
 }
 
+static int test_gpioa_mmio_read_write_registers(void) {
+    sim_t sim;
+    uint32_t value = 0;
+
+    if (sim_init(&sim, NULL) != 0) {
+        return 1;
+    }
+
+    if (!bus_result_is_ok(bus_write32(&sim.bus, GPIOA_BASE + GPIO_CRL_OFFSET, 0x44444444u))
+        || !bus_result_is_ok(bus_write32(&sim.bus, GPIOA_BASE + GPIO_CRH_OFFSET, 0x33333333u))
+        || !bus_result_is_ok(bus_write32(&sim.bus, GPIOA_BASE + GPIO_ODR_OFFSET, 0x0003u))) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (!bus_result_is_ok(bus_read32(&sim.bus, GPIOA_BASE + GPIO_CRL_OFFSET, &value)) || value != 0x44444444u
+        || !bus_result_is_ok(bus_read32(&sim.bus, GPIOA_BASE + GPIO_CRH_OFFSET, &value)) || value != 0x33333333u
+        || !bus_result_is_ok(bus_read32(&sim.bus, GPIOA_BASE + GPIO_ODR_OFFSET, &value)) || value != 0x0003u) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (!bus_result_is_ok(bus_write32(&sim.bus, GPIOA_BASE + GPIO_BSRR_OFFSET, (1u << 17) | (1u << 4)))
+        || !bus_result_is_ok(bus_read32(&sim.bus, GPIOA_BASE + GPIO_ODR_OFFSET, &value))
+        || value != 0x0011u) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (gpio_set_input(&sim.gpioa, 0u, 1) != 0
+        || !bus_result_is_ok(bus_read32(&sim.bus, GPIOA_BASE + GPIO_IDR_OFFSET, &value))
+        || (value & 0x1u) == 0u) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    if (gpio_set_input(&sim.gpioa, 0u, 0) != 0
+        || !bus_result_is_ok(bus_read32(&sim.bus, GPIOA_BASE + GPIO_IDR_OFFSET, &value))
+        || (value & 0x1u) != 0u) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    sim_destroy(&sim);
+    return 0;
+}
+
 int main(void) {
 #define RUN_TEST(fn) \
     do { \
@@ -2957,6 +3004,7 @@ int main(void) {
     RUN_TEST(test_usart1_mmio_dr_write_produces_sim_uart_output);
     RUN_TEST(test_usart1_mmio_dr_write_without_enable_has_no_output);
     RUN_TEST(test_usart1_firmware_str_mmio_produces_output);
+    RUN_TEST(test_gpioa_mmio_read_write_registers);
 
 #undef RUN_TEST
 

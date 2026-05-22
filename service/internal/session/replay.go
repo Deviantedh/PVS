@@ -44,6 +44,11 @@ func (e *replayEngine) Stop(context.Context) (model.SessionState, error) {
 	return e.state, nil
 }
 
+func (e *replayEngine) SetPin(_ context.Context, name string, request model.PinControlRequest) (model.SessionState, error) {
+	e.state.Pins = applyPinOverrides(e.state.Pins, map[string]model.PinControlRequest{name: request})
+	return e.state, nil
+}
+
 func (e *replayEngine) Close() error {
 	return nil
 }

@@ -22,6 +22,7 @@ type Engine interface {
 	Step(ctx context.Context, steps uint64) (model.SessionState, error)
 	Run(ctx context.Context, maxInstructions uint64) (model.SessionState, error)
 	Stop(ctx context.Context) (model.SessionState, error)
+	SetPin(ctx context.Context, name string, request model.PinControlRequest) (model.SessionState, error)
 	Close() error
 }
 
@@ -121,19 +122,39 @@ func (m *Manager) Stop(ctx context.Context, id string) (model.SessionState, erro
 	})
 }
 
-func (m *Manager) SetPin(id string, name string, request model.PinControlRequest) (model.SessionState, error) {
+func (m *Manager) SetPin(ctx context.Context, id string, name string, request model.PinControlRequest) (model.SessionState, error) {
+	m.mu.Lock()
+	session, ok := m.sessions[id]
+	if !ok {
+		m.mu.Unlock()
+		return model.SessionState{}, ErrNotFound
+	}
+	engine := session.engine
+	m.mu.Unlock()
+
+	state, err := engine.SetPin(ctx, name, request)
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	session, ok := m.sessions[id]
+	session, ok = m.sessions[id]
 	if !ok {
 		return model.SessionState{}, ErrNotFound
 	}
 	session.pinOverrides[name] = request
-	session.state.Pins = applyPinOverrides(session.state.Pins, session.pinOverrides)
-	state := cloneState(session.state)
-	m.publishLocked(session, state)
-	return state, nil
+	if err != nil {
+		session.state.Status = model.SessionFailed
+		session.state.ErrorCode = model.ErrorSimulatorCrash
+		session.state.Error = err.Error()
+		state := cloneState(session.state)
+		m.publishLocked(session, state)
+		return state, nil
+	}
+	state.SessionID = id
+	state.Pins = applyPinOverrides(state.Pins, session.pinOverrides)
+	session.state = state
+	out := cloneState(session.state)
+	m.publishLocked(session, out)
+	return out, nil
 }
 
 func (m *Manager) Subscribe(id string) (<-chan model.SessionState, func(), error) {

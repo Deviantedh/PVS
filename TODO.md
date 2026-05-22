@@ -2,14 +2,11 @@
 
 ## Ближайшие задачи
 
-- Подключить минимальную GPIO/MMIO-модель к pin snapshot и pin control
 - Добавить lifecycle cleanup/delete endpoint для stateful debug sessions
-- Привязать pin control из session API к реальному GPIO input path симулятора
 - При желании добавить CLI smoke test в `CTest`
 - Синхронизировать `CPU_ISA_COVERAGE.md` с фактической реализацией CPU
 - Добавить `--version` в CLI
 - Добавить trace/dump-regs-on-exit option в CLI
-- Сделать CLI demo fixture для запуска демонстрационной raw firmware без ручной сборки файла
 
 ## Средний приоритет
 
@@ -55,3 +52,7 @@
 - Минимальный pin snapshot и отображение pins в GUI
 - Первый live/session API с SSE events и session-local pin overlay
 - Stateful process-backed debug bridge `pvs_sim_debug`
+- Минимальная GPIOA/MMIO-модель для `CRL`, `CRH`, `IDR`, `ODR`, `BSRR`, `BRR`
+- Привязка pin control из session API к реальному GPIO input path симулятора
+- Тестовая firmware-программа: `PA0 -> USART1`, выводит `H` или `L`
+- GUI demo fixture с firmware, демонстрирующей управление PA0 через frontend

@@ -15,7 +15,8 @@
 
 ## P1 - MMIO and peripherals
 
-- [ ] Route NVIC registers through SCS MMIO (`0xE000E100` range).
+- [x] Route NVIC registers through SCS MMIO (`0xE000E100` range).
+- [x] Add minimal GPIOA MMIO and connect frontend pin control to simulator input pins.
 - [ ] Add USART1 RX input buffer and `RXNE`/`RXNEIE` interrupt flow.
 - [ ] Add minimal SysTick/SCB stubs in SCS.
 - [ ] Decide and document byte/halfword MMIO access policy.

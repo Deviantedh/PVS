@@ -6,6 +6,7 @@
 
 #include "sim/bus.h"
 #include "sim/cpu.h"
+#include "sim/gpio.h"
 #include "sim/memory.h"
 #include "sim/nvic.h"
 #include "sim/tim2.h"
@@ -34,6 +35,7 @@ typedef struct sim {
     nvic_t nvic;
     tim2_t tim2;
     usart1_t usart1;
+    gpio_t gpioa;
     char uart_output[SIM_UART_OUTPUT_SIZE + 1u];
     size_t uart_output_size;
     sim_config_t config;

@@ -8,9 +8,9 @@
 - без build step;
 - отправляет `model.Job` на `POST /api/run`;
 - создает live/debug session через `POST /api/session`;
-- умеет делать replay-backed `step/run/stop` через session API;
+- умеет делать stateful `step/run/stop` через session API;
 - подписывается на SSE events, если браузер поддерживает `EventSource`;
-- отправляет session-local pin control через `POST /api/session/{id}/pins/{name}`;
+- отправляет pin control через `POST /api/session/{id}/pins/{name}` в GPIOA input path живого симулятора;
 - показывает текущий `model.Result`, включая CPU/peripheral/pin snapshot;
 - фиксирует контракт: GUI общается с Go service, а не с C simulator напрямую.
 
@@ -37,7 +37,7 @@ http://localhost:8090/gui/
 ## Целевая интеграция
 
 ```text
-GUI -> Go HTTP API -> runner -> pvs_sim_cli -> sim engine
+GUI -> Go HTTP API -> pvs_sim_cli / pvs_sim_debug -> sim engine
 ```
 
 Первый backend endpoint для подключения UI:
@@ -57,4 +57,4 @@ go run ./cmd/pvs-http --simulator ../build/sim/pvs_sim_cli --debugger ../build/s
 
 После этого открыть `gui/index.html`, оставить `Backend URL` равным `http://127.0.0.1:8080/api/run` и нажать `Run simulator`.
 
-Для live/session flow нажать `Create session`, затем `Step` или `Run session`. Эти команды идут в живой `pvs_sim_debug` process, который держит состояние `sim_t` между запросами. Клик по пину отправляет минимальный pin control request. На текущем этапе это session-local overlay и он не влияет на C-симулятор, потому что GPIO input path еще не реализован.
+Для live/session flow нажать `Create session`, кликнуть PA0 при необходимости, затем `Run session`. Эти команды идут в живой `pvs_sim_debug` process, который держит состояние `sim_t` между запросами. Текущая demo firmware читает PA0 через `GPIOA->IDR` и отправляет `H` или `L` в USART1.

@@ -156,10 +156,18 @@ static void write_irq_list(FILE *file, const uint8_t *values) {
     fputc(']', file);
 }
 
-static void write_pin_snapshot(FILE *file) {
+static void write_pin_snapshot(FILE *file, const sim_t *sim) {
     fputc('[', file);
     for (size_t i = 0; i < sizeof(blue_pill_pins) / sizeof(blue_pill_pins[0]); ++i) {
         const pin_snapshot_t *pin = &blue_pill_pins[i];
+        int level = pin->level;
+        const char *mode = pin->mode;
+
+        if (sim != NULL && strcmp(pin->port, "A") == 0) {
+            (void)gpio_get_level(&sim->gpioa, pin->index, &level);
+            mode = "input";
+        }
+
         if (i != 0u) {
             fputc(',', file);
         }
@@ -168,12 +176,12 @@ static void write_pin_snapshot(FILE *file) {
         fprintf(file, ",\"port\":");
         write_json_string(file, pin->port);
         fprintf(file, ",\"index\":%u,\"mode\":", pin->index);
-        write_json_string(file, pin->mode);
+        write_json_string(file, mode);
         fprintf(file, ",\"level\":");
-        if (pin->level < 0) {
+        if (level < 0) {
             fprintf(file, "null");
         } else {
-            fprintf(file, "%d", pin->level);
+            fprintf(file, "%d", level);
         }
         fprintf(file, ",\"label\":");
         write_json_string(file, pin->label);
@@ -217,9 +225,24 @@ static void write_state(FILE *file, const sim_t *sim, debug_status_t status, sim
     fprintf(file, ",\"pending\":");
     write_irq_list(file, sim->nvic.pending);
     fprintf(file, "}},\"pins\":");
-    write_pin_snapshot(file);
+    write_pin_snapshot(file, sim);
     fprintf(file, "}\n");
     fflush(file);
+}
+
+static int parse_pin_name(const char *name, char *port, uint8_t *index) {
+    unsigned parsed_index = 0;
+
+    if (name == NULL || port == NULL || index == NULL || strlen(name) < 3u) {
+        return -1;
+    }
+
+    if (sscanf(name, "P%c%u", port, &parsed_index) != 2 || parsed_index > 15u) {
+        return -1;
+    }
+
+    *index = (uint8_t)parsed_index;
+    return 0;
 }
 
 static sim_stop_reason_t step_many(sim_t *sim, uint64_t steps) {
@@ -277,6 +300,26 @@ int main(int argc, char **argv) {
         if (strcmp(command, "stop") == 0) {
             status = DEBUG_STATUS_STOPPED;
             write_state(stdout, &sim, status, reason);
+            continue;
+        }
+        if (strcmp(command, "pin") == 0) {
+            char pin_name[8] = {0};
+            char port = '\0';
+            uint8_t index = 0;
+            unsigned level = 0;
+
+            if (sscanf(line, "%15s %7s %u", command, pin_name, &level) == 3
+                && parse_pin_name(pin_name, &port, &index) == 0
+                && port == 'A'
+                && level <= 1u
+                && gpio_set_input(&sim.gpioa, index, level != 0u) == 0) {
+                status = DEBUG_STATUS_STOPPED;
+                write_state(stdout, &sim, status, reason);
+                continue;
+            }
+
+            status = DEBUG_STATUS_FAILED;
+            write_state(stdout, &sim, status, SIM_STOP_FAULT);
             continue;
         }
         if (strcmp(command, "step") == 0) {

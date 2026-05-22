@@ -10,8 +10,8 @@
 |---|---:|---:|---|---|
 | Flash | `0x08000000` | `64 KiB` default | implemented | Raw firmware is loaded here. Reset vector is read from `base + 0x00` and `base + 0x04`. |
 | SRAM | `0x20000000` | `20 KiB` default | implemented | Used for data and MSP stack. |
-| Peripherals | `0x40000000` | device-defined | partial | TIM2 and USART1 are routed by the bus for 32-bit accesses. |
-| SCS | `0xE000E000` | `0x1000` | planned | NVIC/SCB/SysTick MMIO registers are not routed through the bus yet. |
+| Peripherals | `0x40000000` | device-defined | partial | TIM2, GPIOA, and USART1 are routed by the bus for 32-bit accesses. |
+| SCS | `0xE000E000` | `0x1000` | partial | NVIC registers are routed; SCB/SysTick are planned. |
 
 ## IRQ numbers
 
@@ -65,16 +65,30 @@ Implemented bits:
 | `CR1` | `0x0020` | `RXNEIE` |
 | `CR1` | `0x2000` | `UE` |
 
+## GPIOA
+
+Base address: `0x40010800`
+
+| Offset | Register | Access | Implemented behavior |
+|---:|---|---|---|
+| `0x00` | `CRL` | RW | Stored for low-pin configuration visibility. |
+| `0x04` | `CRH` | RW | Stored for high-pin configuration visibility. |
+| `0x08` | `IDR` | R | Reads the simulator-controlled input levels for PA0-PA15. |
+| `0x0C` | `ODR` | RW | Stores output levels for PA0-PA15. |
+| `0x10` | `BSRR` | W | Low half sets ODR bits, high half clears ODR bits. |
+| `0x14` | `BRR` | W | Clears ODR bits. |
+
+Frontend pin control currently drives GPIOA input levels through the stateful debug bridge. The demo firmware reads PA0 from `IDR` and writes `H` or `L` to USART1.
+
 ## Access policy
 
 - The simulator is little-endian.
 - Unaligned halfword and word accesses return a bus fault result.
-- Current TIM2/USART1 MMIO routing supports 32-bit bus accesses.
+- Current TIM2/GPIOA/USART1 MMIO routing supports 32-bit bus accesses.
 - Unsupported MMIO registers return `BUS_STATUS_UNMAPPED`.
 
 ## Planned additions
 
-- Route NVIC registers through SCS MMIO (`0xE000E100` range).
 - Add SysTick/SCB stubs in SCS.
 - Add USART1 RX input buffer and `RXNEIE` interrupt delivery.
 - Decide whether byte/halfword accesses to MMIO registers should be supported or faulted.

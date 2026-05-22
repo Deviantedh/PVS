@@ -249,7 +249,7 @@ func (s *Server) handleSessionPin(w http.ResponseWriter, r *http.Request, id str
 		return
 	}
 
-	state, err := s.sessions.SetPin(id, name, request)
+	state, err := s.sessions.SetPin(r.Context(), id, name, request)
 	if err != nil {
 		writeSessionError(w, id, err)
 		return

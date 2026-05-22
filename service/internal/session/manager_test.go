@@ -49,7 +49,7 @@ func TestManagerPublishesSnapshotsAndAppliesPinOverrides(t *testing.T) {
 	}
 
 	level := 1
-	state, err = manager.SetPin(state.SessionID, "PA2", model.PinControlRequest{Level: &level})
+	state, err = manager.SetPin(context.Background(), state.SessionID, "PA2", model.PinControlRequest{Level: &level})
 	if err != nil {
 		t.Fatalf("SetPin returned error: %v", err)
 	}

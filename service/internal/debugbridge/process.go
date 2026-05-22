@@ -127,6 +127,13 @@ func (e *Engine) Stop(ctx context.Context) (model.SessionState, error) {
 	return e.command(ctx, "stop")
 }
 
+func (e *Engine) SetPin(ctx context.Context, name string, request model.PinControlRequest) (model.SessionState, error) {
+	if request.Level == nil {
+		return e.command(ctx, "state")
+	}
+	return e.command(ctx, "pin "+name+" "+strconv.Itoa(*request.Level))
+}
+
 func (e *Engine) Close() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()

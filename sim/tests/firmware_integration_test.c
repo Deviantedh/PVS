@@ -31,6 +31,17 @@ static uint16_t encode_str_imm(uint8_t rt, uint8_t rn, uint8_t imm5) {
         | (rt & 0x7u));
 }
 
+static uint16_t encode_ldr_imm(uint8_t rt, uint8_t rn, uint8_t imm5) {
+    return (uint16_t)(0x6800u
+        | ((uint16_t)(imm5 & 0x1Fu) << 6)
+        | ((uint16_t)(rn & 0x7u) << 3)
+        | (rt & 0x7u));
+}
+
+static uint16_t encode_and_reg(uint8_t rdn, uint8_t rm) {
+    return (uint16_t)(0x4000u | ((uint16_t)(rm & 0x7u) << 3) | (rdn & 0x7u));
+}
+
 static uint16_t encode_cpsie_i(void) {
     return 0xB662u;
 }
@@ -65,6 +76,20 @@ static int run_steps(sim_t *sim, uint32_t steps) {
     }
 
     return 0;
+}
+
+static int run_until_break(sim_t *sim, uint32_t max_steps) {
+    for (uint32_t i = 0; i < max_steps; ++i) {
+        sim_stop_reason_t reason = sim_step(sim);
+        if (reason == SIM_STOP_BREAK) {
+            return 0;
+        }
+        if (reason != SIM_STOP_NONE) {
+            return -1;
+        }
+    }
+
+    return -1;
 }
 
 static void build_hello_uart(uint8_t *firmware, size_t size) {
@@ -262,6 +287,81 @@ static int test_timer_irq_to_uart_firmware(void) {
     return failed ? 1 : 0;
 }
 
+static void build_gpio_pin_to_uart(uint8_t *firmware, size_t size) {
+    memset(firmware, 0, size);
+
+    encode_u32le(&firmware[0], SIM_SRAM_BASE + 0x100u);
+    encode_u32le(&firmware[4], SIM_FLASH_BASE + 8u + 1u);
+
+    encode_u16le(&firmware[8], 0x4909u);
+    encode_u16le(&firmware[10], 0x4A0Au);
+    encode_u16le(&firmware[12], 0x4B0Au);
+    encode_u16le(&firmware[14], encode_str_imm(3u, 2u, USART1_CR1_OFFSET / 4u));
+    encode_u16le(&firmware[16], encode_ldr_imm(0u, 1u, GPIO_IDR_OFFSET / 4u));
+    encode_u16le(&firmware[18], 0x4B0Au);
+    encode_u16le(&firmware[20], encode_and_reg(0u, 3u));
+    encode_u16le(&firmware[22], 0x2800u);
+    encode_u16le(&firmware[24], encode_b_cond(0x1u, 3));
+    encode_u16le(&firmware[26], 0x204Cu);
+    encode_u16le(&firmware[28], encode_str_imm(0u, 2u, USART1_DR_OFFSET / 4u));
+    encode_u16le(&firmware[30], 0xDF00u);
+    encode_u16le(&firmware[32], 0xBF00u);
+    encode_u16le(&firmware[34], 0x2048u);
+    encode_u16le(&firmware[36], encode_str_imm(0u, 2u, USART1_DR_OFFSET / 4u));
+    encode_u16le(&firmware[38], 0xDF00u);
+
+    encode_u32le(&firmware[48], GPIOA_BASE);
+    encode_u32le(&firmware[52], USART1_BASE);
+    encode_u32le(&firmware[56], USART1_CR1_UE | USART1_CR1_TE);
+    encode_u32le(&firmware[60], 1u);
+}
+
+static int test_gpio_pin_to_uart_firmware_low(void) {
+    sim_t sim;
+    uint8_t firmware[64];
+    int failed;
+
+    build_gpio_pin_to_uart(firmware, sizeof(firmware));
+    if (load_and_reset(&sim, firmware, sizeof(firmware)) != 0) {
+        return 1;
+    }
+
+    if (gpio_set_input(&sim.gpioa, 0u, 0) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    failed = run_until_break(&sim, 16u) != 0
+        || sim_uart_output_size(&sim) != 1u
+        || memcmp(sim_uart_output_data(&sim), "L", 1u) != 0;
+
+    sim_destroy(&sim);
+    return failed ? 1 : 0;
+}
+
+static int test_gpio_pin_to_uart_firmware_high(void) {
+    sim_t sim;
+    uint8_t firmware[64];
+    int failed;
+
+    build_gpio_pin_to_uart(firmware, sizeof(firmware));
+    if (load_and_reset(&sim, firmware, sizeof(firmware)) != 0) {
+        return 1;
+    }
+
+    if (gpio_set_input(&sim.gpioa, 0u, 1) != 0) {
+        sim_destroy(&sim);
+        return 1;
+    }
+
+    failed = run_until_break(&sim, 16u) != 0
+        || sim_uart_output_size(&sim) != 1u
+        || memcmp(sim_uart_output_data(&sim), "H", 1u) != 0;
+
+    sim_destroy(&sim);
+    return failed ? 1 : 0;
+}
+
 int main(void) {
 #define RUN_TEST(fn) \
     do { \
@@ -275,6 +375,8 @@ int main(void) {
     RUN_TEST(test_loop_counter_firmware);
     RUN_TEST(test_timer_irq_firmware);
     RUN_TEST(test_timer_irq_to_uart_firmware);
+    RUN_TEST(test_gpio_pin_to_uart_firmware_low);
+    RUN_TEST(test_gpio_pin_to_uart_firmware_high);
 
 #undef RUN_TEST
 

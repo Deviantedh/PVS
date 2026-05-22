@@ -77,8 +77,9 @@ int sim_init(sim_t *sim, const sim_config_t *config) {
     nvic_init(&sim->nvic);
     tim2_init(&sim->tim2);
     usart1_init(&sim->usart1);
+    gpio_init(&sim->gpioa);
     sim_uart_output_clear(sim);
-    bus_init(&sim->bus, &sim->memory, &sim->tim2, &sim->usart1, &sim->nvic);
+    bus_init(&sim->bus, &sim->memory, &sim->tim2, &sim->usart1, &sim->nvic, &sim->gpioa);
     cpu_state_reset(&sim->cpu);
     sim->initialized = 1;
     return 0;
@@ -105,6 +106,7 @@ int sim_reset(sim_t *sim) {
     nvic_reset(&sim->nvic);
     tim2_reset(&sim->tim2);
     usart1_reset(&sim->usart1);
+    gpio_reset(&sim->gpioa);
     sim_uart_output_clear(sim);
     memory_reset(&sim->memory);
     sim->stop_reason = SIM_STOP_NONE;

@@ -1,6 +1,7 @@
 set(SIM_PUBLIC_HEADERS
     include/sim/bus.h
     include/sim/cpu.h
+    include/sim/gpio.h
     include/sim/irq.h
     include/sim/memory.h
     include/sim/nvic.h
@@ -15,6 +16,7 @@ set(SIM_SOURCES
     src/sim.c
     src/cpu/cpu.c
     src/devices/nvic.c
+    src/devices/gpio.c
     src/devices/tim2.c
     src/devices/usart1.c
     src/devices/stub.c
@@ -48,9 +50,10 @@ if(PVS_BUILD_TESTS)
     add_executable(pvs_sim_firmware_integration_test tests/firmware_integration_test.c)
     target_link_libraries(pvs_sim_firmware_integration_test PRIVATE pvs_sim)
 
-    add_executable(pvs_sim_cli_json_snapshot_test tests/cli_json_snapshot_test.c)
-
     add_test(NAME pvs_sim_smoke_test COMMAND pvs_sim_smoke_test)
     add_test(NAME pvs_sim_firmware_integration_test COMMAND pvs_sim_firmware_integration_test)
-    add_test(NAME pvs_sim_cli_json_snapshot_test COMMAND pvs_sim_cli_json_snapshot_test $<TARGET_FILE:pvs_sim_cli>)
+    if(NOT WIN32)
+        add_executable(pvs_sim_cli_json_snapshot_test tests/cli_json_snapshot_test.c)
+        add_test(NAME pvs_sim_cli_json_snapshot_test COMMAND pvs_sim_cli_json_snapshot_test $<TARGET_FILE:pvs_sim_cli>)
+    endif()
 endif()

@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 
+#include "sim/gpio.h"
 #include "sim/nvic.h"
 #include "sim/tim2.h"
 #include "sim/usart1.h"
@@ -69,6 +70,15 @@ static int bus_usart1_offset(uint32_t addr, uint32_t *offset) {
 
     *offset = addr - USART1_BASE;
     return *offset <= USART1_CR1_OFFSET;
+}
+
+static int bus_gpioa_offset(uint32_t addr, uint32_t *offset) {
+    if (addr < GPIOA_BASE || offset == NULL) {
+        return 0;
+    }
+
+    *offset = addr - GPIOA_BASE;
+    return *offset <= GPIO_BRR_OFFSET;
 }
 
 static int bus_nvic_word_index(uint32_t addr, uint32_t base, uint32_t word_count, uint32_t *index) {
@@ -207,7 +217,7 @@ static int bus_nvic_write32(nvic_t *nvic, uint32_t addr, uint32_t value) {
     return 0;
 }
 
-void bus_init(bus_t *bus, memory_t *memory, tim2_t *tim2, usart1_t *usart1, nvic_t *nvic) {
+void bus_init(bus_t *bus, memory_t *memory, tim2_t *tim2, usart1_t *usart1, nvic_t *nvic, gpio_t *gpioa) {
     if (bus == NULL) {
         return;
     }
@@ -216,6 +226,7 @@ void bus_init(bus_t *bus, memory_t *memory, tim2_t *tim2, usart1_t *usart1, nvic
     bus->tim2 = tim2;
     bus->usart1 = usart1;
     bus->nvic = nvic;
+    bus->gpioa = gpioa;
 }
 
 bus_result_t bus_read8(bus_t *bus, uint32_t addr, uint8_t *value) {
@@ -284,6 +295,14 @@ bus_result_t bus_read32(bus_t *bus, uint32_t addr, uint32_t *value) {
         return bus_result_make(BUS_STATUS_OK, BUS_ACCESS_READ, addr, sizeof(uint32_t));
     }
 
+    if (bus != NULL && bus->gpioa != NULL && bus_gpioa_offset(addr, &offset)) {
+        if (gpio_read32(bus->gpioa, offset, value) == 0) {
+            return bus_result_make(BUS_STATUS_OK, BUS_ACCESS_READ, addr, sizeof(uint32_t));
+        }
+
+        return bus_result_make(BUS_STATUS_UNMAPPED, BUS_ACCESS_READ, addr, sizeof(uint32_t));
+    }
+
     result = bus_translate(bus, addr, &ptr, sizeof(uint32_t), BUS_ACCESS_READ);
     if (result.status != BUS_STATUS_OK) {
         return result;
@@ -348,6 +367,14 @@ bus_result_t bus_write32(bus_t *bus, uint32_t addr, uint32_t value) {
 
     if (bus != NULL && bus_nvic_write32(bus->nvic, addr, value)) {
         return bus_result_make(BUS_STATUS_OK, BUS_ACCESS_WRITE, addr, sizeof(uint32_t));
+    }
+
+    if (bus != NULL && bus->gpioa != NULL && bus_gpioa_offset(addr, &offset)) {
+        if (gpio_write32(bus->gpioa, offset, value) == 0) {
+            return bus_result_make(BUS_STATUS_OK, BUS_ACCESS_WRITE, addr, sizeof(uint32_t));
+        }
+
+        return bus_result_make(BUS_STATUS_UNMAPPED, BUS_ACCESS_WRITE, addr, sizeof(uint32_t));
     }
 
     result = bus_translate(bus, addr, &ptr, sizeof(uint32_t), BUS_ACCESS_WRITE);

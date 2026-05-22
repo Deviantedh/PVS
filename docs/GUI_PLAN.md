@@ -29,7 +29,7 @@ GUI frontend -> Go service/API -> simulator CLI/runner -> C sim engine
 ### `sim/`
 
 - исполняет firmware;
-- моделирует CPU, память, MMIO, NVIC, TIM2, USART1;
+- моделирует CPU, память, MMIO, NVIC, TIM2, GPIOA, USART1;
 - возвращает stop reason, счетчики, UART output и диагностику.
 
 ### `service/`
@@ -57,11 +57,11 @@ MVP endpoints:
 - `POST /api/run` — синхронно запустить raw/base64 firmware с конфигом и вернуть result.
 - `POST /api/session` — создать live/debug session.
 - `GET /api/session/{id}` — получить текущий snapshot session.
-- `POST /api/session/{id}/step` — выполнить replay-backed шаг/несколько шагов.
-- `POST /api/session/{id}/run` — выполнить replay-backed продолжение до лимита.
+- `POST /api/session/{id}/step` — выполнить stateful шаг/несколько шагов.
+- `POST /api/session/{id}/run` — выполнить stateful продолжение до лимита.
 - `POST /api/session/{id}/stop` — остановить session state.
 - `GET /api/session/{id}/events` — SSE stream snapshot-событий.
-- `POST /api/session/{id}/pins/{name}` — session-local pin control overlay.
+- `POST /api/session/{id}/pins/{name}` — управлять входным уровнем пина в live/debug session.
 
 Следующие endpoints понадобятся после появления асинхронного режима:
 
@@ -113,17 +113,12 @@ MVP endpoints:
 
 ## Ограничения MVP
 
-- GUI пока не управляет симуляцией по шагам.
-- Нет live stream состояния.
-- Нет настоящей модели GPIO/pin mux.
 - Нет загрузки ELF, только raw firmware через backend-контракт.
-- Статический frontend показывает только те поля, которые уже возвращает `model.Result`.
-- `pins` пока строится статически для ограниченного набора Blue Pill пинов; `mode` обычно `unknown`, `level` обычно `null`.
+- `pins` пока строится статически для ограниченного набора Blue Pill пинов.
+- GPIO реализован минимально: GPIOA `IDR/ODR/CRL/CRH/BSRR/BRR`, без полной pin mux/alternate function модели.
 - Session `step/run` использует stateful process-backed bridge `pvs_sim_debug`: одна session держит один живой `sim_t` в отдельном C-процессе.
-- Pin control пока меняет только session snapshot overlay и не влияет на исполнение firmware.
 
 ## Ближайшие шаги
 
 1. Добавить lifecycle cleanup/delete для debug sessions.
-2. Добавить GPIO/MMIO-модель и связать pin control с реальными входами.
-3. Добавить WebSocket только если SSE перестанет хватать.
+2. Добавить WebSocket только если SSE перестанет хватать.
