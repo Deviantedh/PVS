@@ -6,6 +6,12 @@
 #define NVIC_MAX_IRQS 64u
 #define NVIC_NO_IRQ   (-1)
 
+#define NVIC_ISER_BASE 0xE000E100u
+#define NVIC_ICER_BASE 0xE000E180u
+#define NVIC_ISPR_BASE 0xE000E200u
+#define NVIC_ICPR_BASE 0xE000E280u
+#define NVIC_IPR_BASE  0xE000E400u
+
 typedef struct nvic {
     uint8_t enabled[NVIC_MAX_IRQS];
     uint8_t pending[NVIC_MAX_IRQS];

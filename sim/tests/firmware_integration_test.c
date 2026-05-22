@@ -31,6 +31,14 @@ static uint16_t encode_str_imm(uint8_t rt, uint8_t rn, uint8_t imm5) {
         | (rt & 0x7u));
 }
 
+static uint16_t encode_cpsie_i(void) {
+    return 0xB662u;
+}
+
+static uint16_t encode_cpsid_i(void) {
+    return 0xB672u;
+}
+
 static int load_and_reset(sim_t *sim, const uint8_t *firmware, size_t firmware_size) {
     if (sim_init(sim, NULL) != 0) {
         return -1;
@@ -186,6 +194,74 @@ static int test_timer_irq_firmware(void) {
     return failed ? 1 : 0;
 }
 
+static void build_timer_irq_to_uart(uint8_t *firmware, size_t size) {
+    uint32_t handler_addr = SIM_FLASH_BASE + 256u + 1u;
+
+    memset(firmware, 0, size);
+
+    encode_u32le(&firmware[0], SIM_SRAM_BASE + 0x100u);
+    encode_u32le(&firmware[4], SIM_FLASH_BASE + 8u + 1u);
+    encode_u32le(&firmware[(CPU_EXTERNAL_EXCEPTION_BASE + TIM2_IRQ_NUMBER) * 4u], handler_addr);
+
+    encode_u16le(&firmware[8], encode_cpsid_i());
+    encode_u16le(&firmware[10], 0x4908u);
+    encode_u16le(&firmware[12], 0x4A08u);
+    encode_u16le(&firmware[14], encode_str_imm(2u, 1u, USART1_CR1_OFFSET / 4u));
+    encode_u16le(&firmware[16], 0x4908u);
+    encode_u16le(&firmware[18], 0x2001u);
+    encode_u16le(&firmware[20], encode_str_imm(0u, 1u, TIM2_ARR_OFFSET / 4u));
+    encode_u16le(&firmware[22], encode_str_imm(0u, 1u, TIM2_DIER_OFFSET / 4u));
+    encode_u16le(&firmware[24], encode_str_imm(0u, 1u, TIM2_CR1_OFFSET / 4u));
+    encode_u16le(&firmware[26], 0x4907u);
+    encode_u16le(&firmware[28], 0x4807u);
+    encode_u16le(&firmware[30], encode_str_imm(0u, 1u, 0u));
+    encode_u16le(&firmware[32], encode_cpsie_i());
+    encode_u16le(&firmware[34], encode_b(-2));
+    encode_u32le(&firmware[44], USART1_BASE);
+    encode_u32le(&firmware[48], USART1_CR1_UE | USART1_CR1_TE);
+    encode_u32le(&firmware[52], TIM2_BASE);
+    encode_u32le(&firmware[56], NVIC_ISER_BASE);
+    encode_u32le(&firmware[60], 1u << TIM2_IRQ_NUMBER);
+
+    encode_u16le(&firmware[256], 0x4906u);
+    encode_u16le(&firmware[258], 0x2000u);
+    encode_u16le(&firmware[260], encode_str_imm(0u, 1u, TIM2_CR1_OFFSET / 4u));
+    encode_u16le(&firmware[262], 0x4906u);
+    encode_u16le(&firmware[264], 0x4806u);
+    encode_u16le(&firmware[266], encode_str_imm(0u, 1u, 0u));
+    encode_u16le(&firmware[268], 0x4906u);
+    encode_u16le(&firmware[270], 0x2054u);
+    encode_u16le(&firmware[272], encode_str_imm(0u, 1u, USART1_DR_OFFSET / 4u));
+    encode_u16le(&firmware[274], 0x4770u);
+    encode_u32le(&firmware[284], TIM2_BASE);
+    encode_u32le(&firmware[288], NVIC_ICPR_BASE);
+    encode_u32le(&firmware[292], 1u << TIM2_IRQ_NUMBER);
+    encode_u32le(&firmware[296], USART1_BASE);
+}
+
+static int test_timer_irq_to_uart_firmware(void) {
+    sim_t sim;
+    uint8_t firmware[320];
+    int failed;
+
+    build_timer_irq_to_uart(firmware, sizeof(firmware));
+    if (load_and_reset(&sim, firmware, sizeof(firmware)) != 0) {
+        return 1;
+    }
+
+    failed = run_steps(&sim, 23u) != 0
+        || sim_uart_output_size(&sim) != 1u
+        || memcmp(sim_uart_output_data(&sim), "T", 1u) != 0
+        || sim.cpu.handler_mode
+        || sim.cpu.active_exception != 0u
+        || sim.cpu.pc != SIM_FLASH_BASE + 34u + 1u
+        || nvic_is_pending(&sim.nvic, TIM2_IRQ_NUMBER) != 0
+        || (sim.tim2.cr1 & TIM2_CR1_CEN) != 0u;
+
+    sim_destroy(&sim);
+    return failed ? 1 : 0;
+}
+
 int main(void) {
 #define RUN_TEST(fn) \
     do { \
@@ -198,6 +274,7 @@ int main(void) {
     RUN_TEST(test_hello_uart_firmware);
     RUN_TEST(test_loop_counter_firmware);
     RUN_TEST(test_timer_irq_firmware);
+    RUN_TEST(test_timer_irq_to_uart_firmware);
 
 #undef RUN_TEST
 

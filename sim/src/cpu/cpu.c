@@ -232,6 +232,18 @@ static cpu_step_result_t cpu_execute_thumb16(sim_t *sim, uint16_t instr) {
         return cpu_step_result_make(CPU_STEP_OK, bus_result);
     }
 
+    if (instr == 0xB662u) {
+        sim->cpu.primask = 0u;
+        sim->cpu.pc += 2u;
+        return cpu_step_result_make(CPU_STEP_OK, bus_result);
+    }
+
+    if (instr == 0xB672u) {
+        sim->cpu.primask = 1u;
+        sim->cpu.pc += 2u;
+        return cpu_step_result_make(CPU_STEP_OK, bus_result);
+    }
+
     if ((instr & 0xFF87u) == 0x4700u) {
         uint32_t rm = (instr >> 3) & 0xFu;
         uint32_t target;

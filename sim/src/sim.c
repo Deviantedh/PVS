@@ -78,7 +78,7 @@ int sim_init(sim_t *sim, const sim_config_t *config) {
     tim2_init(&sim->tim2);
     usart1_init(&sim->usart1);
     sim_uart_output_clear(sim);
-    bus_init(&sim->bus, &sim->memory, &sim->tim2, &sim->usart1);
+    bus_init(&sim->bus, &sim->memory, &sim->tim2, &sim->usart1, &sim->nvic);
     cpu_state_reset(&sim->cpu);
     sim->initialized = 1;
     return 0;

@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 
+#include "sim/nvic.h"
 #include "sim/tim2.h"
 #include "sim/usart1.h"
 
@@ -70,7 +71,143 @@ static int bus_usart1_offset(uint32_t addr, uint32_t *offset) {
     return *offset <= USART1_CR1_OFFSET;
 }
 
-void bus_init(bus_t *bus, memory_t *memory, tim2_t *tim2, usart1_t *usart1) {
+static int bus_nvic_word_index(uint32_t addr, uint32_t base, uint32_t word_count, uint32_t *index) {
+    uint32_t offset;
+
+    if (addr < base || index == NULL) {
+        return 0;
+    }
+
+    offset = addr - base;
+    if (offset >= word_count * 4u) {
+        return 0;
+    }
+
+    *index = offset / 4u;
+    return 1;
+}
+
+static uint32_t bus_nvic_pack_bits(const nvic_t *nvic, uint32_t word_index, int pending) {
+    uint32_t value = 0;
+    uint32_t base_irq = word_index * 32u;
+
+    for (uint32_t bit = 0; bit < 32u; ++bit) {
+        int irq = (int)(base_irq + bit);
+        int set = pending ? nvic_is_pending(nvic, irq) : nvic_is_enabled(nvic, irq);
+
+        if (set) {
+            value |= 1u << bit;
+        }
+    }
+
+    return value;
+}
+
+static void bus_nvic_write_bits(nvic_t *nvic, uint32_t word_index, uint32_t value, int pending, int set) {
+    uint32_t base_irq = word_index * 32u;
+
+    for (uint32_t bit = 0; bit < 32u; ++bit) {
+        int irq = (int)(base_irq + bit);
+
+        if ((value & (1u << bit)) == 0u) {
+            continue;
+        }
+
+        if (pending) {
+            (void)(set ? nvic_set_pending(nvic, irq) : nvic_clear_pending(nvic, irq));
+        } else {
+            (void)(set ? nvic_enable_irq(nvic, irq) : nvic_disable_irq(nvic, irq));
+        }
+    }
+}
+
+static uint32_t bus_nvic_pack_priority(const nvic_t *nvic, uint32_t word_index) {
+    uint32_t value = 0;
+    uint32_t base_irq = word_index * 4u;
+
+    for (uint32_t i = 0; i < 4u; ++i) {
+        uint8_t priority = 0;
+
+        (void)nvic_get_priority(nvic, (int)(base_irq + i), &priority);
+        value |= (uint32_t)priority << (i * 8u);
+    }
+
+    return value;
+}
+
+static void bus_nvic_write_priority(nvic_t *nvic, uint32_t word_index, uint32_t value) {
+    uint32_t base_irq = word_index * 4u;
+
+    for (uint32_t i = 0; i < 4u; ++i) {
+        uint8_t priority = (uint8_t)((value >> (i * 8u)) & 0xFFu);
+
+        (void)nvic_set_priority(nvic, (int)(base_irq + i), priority);
+    }
+}
+
+static int bus_nvic_read32(nvic_t *nvic, uint32_t addr, uint32_t *value) {
+    uint32_t index = 0;
+
+    if (nvic == NULL || value == NULL) {
+        return 0;
+    }
+
+    if (bus_nvic_word_index(addr, NVIC_ISER_BASE, NVIC_MAX_IRQS / 32u, &index)
+        || bus_nvic_word_index(addr, NVIC_ICER_BASE, NVIC_MAX_IRQS / 32u, &index)) {
+        *value = bus_nvic_pack_bits(nvic, index, 0);
+        return 1;
+    }
+
+    if (bus_nvic_word_index(addr, NVIC_ISPR_BASE, NVIC_MAX_IRQS / 32u, &index)
+        || bus_nvic_word_index(addr, NVIC_ICPR_BASE, NVIC_MAX_IRQS / 32u, &index)) {
+        *value = bus_nvic_pack_bits(nvic, index, 1);
+        return 1;
+    }
+
+    if (bus_nvic_word_index(addr, NVIC_IPR_BASE, NVIC_MAX_IRQS / 4u, &index)) {
+        *value = bus_nvic_pack_priority(nvic, index);
+        return 1;
+    }
+
+    return 0;
+}
+
+static int bus_nvic_write32(nvic_t *nvic, uint32_t addr, uint32_t value) {
+    uint32_t index = 0;
+
+    if (nvic == NULL) {
+        return 0;
+    }
+
+    if (bus_nvic_word_index(addr, NVIC_ISER_BASE, NVIC_MAX_IRQS / 32u, &index)) {
+        bus_nvic_write_bits(nvic, index, value, 0, 1);
+        return 1;
+    }
+
+    if (bus_nvic_word_index(addr, NVIC_ICER_BASE, NVIC_MAX_IRQS / 32u, &index)) {
+        bus_nvic_write_bits(nvic, index, value, 0, 0);
+        return 1;
+    }
+
+    if (bus_nvic_word_index(addr, NVIC_ISPR_BASE, NVIC_MAX_IRQS / 32u, &index)) {
+        bus_nvic_write_bits(nvic, index, value, 1, 1);
+        return 1;
+    }
+
+    if (bus_nvic_word_index(addr, NVIC_ICPR_BASE, NVIC_MAX_IRQS / 32u, &index)) {
+        bus_nvic_write_bits(nvic, index, value, 1, 0);
+        return 1;
+    }
+
+    if (bus_nvic_word_index(addr, NVIC_IPR_BASE, NVIC_MAX_IRQS / 4u, &index)) {
+        bus_nvic_write_priority(nvic, index, value);
+        return 1;
+    }
+
+    return 0;
+}
+
+void bus_init(bus_t *bus, memory_t *memory, tim2_t *tim2, usart1_t *usart1, nvic_t *nvic) {
     if (bus == NULL) {
         return;
     }
@@ -78,6 +215,7 @@ void bus_init(bus_t *bus, memory_t *memory, tim2_t *tim2, usart1_t *usart1) {
     bus->memory = memory;
     bus->tim2 = tim2;
     bus->usart1 = usart1;
+    bus->nvic = nvic;
 }
 
 bus_result_t bus_read8(bus_t *bus, uint32_t addr, uint8_t *value) {
@@ -142,6 +280,10 @@ bus_result_t bus_read32(bus_t *bus, uint32_t addr, uint32_t *value) {
         return bus_result_make(BUS_STATUS_UNMAPPED, BUS_ACCESS_READ, addr, sizeof(uint32_t));
     }
 
+    if (bus != NULL && bus_nvic_read32(bus->nvic, addr, value)) {
+        return bus_result_make(BUS_STATUS_OK, BUS_ACCESS_READ, addr, sizeof(uint32_t));
+    }
+
     result = bus_translate(bus, addr, &ptr, sizeof(uint32_t), BUS_ACCESS_READ);
     if (result.status != BUS_STATUS_OK) {
         return result;
@@ -202,6 +344,10 @@ bus_result_t bus_write32(bus_t *bus, uint32_t addr, uint32_t value) {
         }
 
         return bus_result_make(BUS_STATUS_UNMAPPED, BUS_ACCESS_WRITE, addr, sizeof(uint32_t));
+    }
+
+    if (bus != NULL && bus_nvic_write32(bus->nvic, addr, value)) {
+        return bus_result_make(BUS_STATUS_OK, BUS_ACCESS_WRITE, addr, sizeof(uint32_t));
     }
 
     result = bus_translate(bus, addr, &ptr, sizeof(uint32_t), BUS_ACCESS_WRITE);
