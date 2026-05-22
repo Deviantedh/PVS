@@ -10,3 +10,6 @@ build-*/
 # IDE
 .vscode/
 .idea/
+
+# Office temporary files
+~$*.docx
