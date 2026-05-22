@@ -220,6 +220,134 @@ static int write_uart_output(const cli_options_t *options, const sim_t *sim) {
     return 0;
 }
 
+static void write_irq_list(FILE *file, const uint8_t *values) {
+    int first = 1;
+
+    fputc('[', file);
+    for (int irq = 0; irq < (int)NVIC_MAX_IRQS; ++irq) {
+        if (values[irq] == 0u) {
+            continue;
+        }
+
+        if (!first) {
+            fputc(',', file);
+        }
+        fprintf(file, "%d", irq);
+        first = 0;
+    }
+    fputc(']', file);
+}
+
+typedef struct pin_snapshot {
+    const char *name;
+    const char *port;
+    uint8_t index;
+    const char *mode;
+    int level;
+    const char *label;
+} pin_snapshot_t;
+
+static const pin_snapshot_t blue_pill_pins[] = {
+    {"PA0", "A", 0u, "unknown", -1, ""},
+    {"PA1", "A", 1u, "unknown", -1, ""},
+    {"PA2", "A", 2u, "unknown", -1, "USART1_TX"},
+    {"PA3", "A", 3u, "unknown", -1, "USART1_RX"},
+    {"PA4", "A", 4u, "unknown", -1, ""},
+    {"PA5", "A", 5u, "unknown", -1, ""},
+    {"PA6", "A", 6u, "unknown", -1, ""},
+    {"PA7", "A", 7u, "unknown", -1, ""},
+    {"PB0", "B", 0u, "unknown", -1, ""},
+    {"PB1", "B", 1u, "unknown", -1, ""},
+    {"PB10", "B", 10u, "unknown", -1, "TIM2"},
+    {"PB11", "B", 11u, "unknown", -1, ""},
+    {"PC13", "C", 13u, "unknown", -1, "LED"},
+    {"PC14", "C", 14u, "unknown", -1, "OSC32_IN"},
+    {"PC15", "C", 15u, "unknown", -1, "OSC32_OUT"}
+};
+
+static void write_pin_snapshot(FILE *file) {
+    fputc('[', file);
+    for (size_t i = 0; i < sizeof(blue_pill_pins) / sizeof(blue_pill_pins[0]); ++i) {
+        const pin_snapshot_t *pin = &blue_pill_pins[i];
+
+        if (i != 0u) {
+            fputc(',', file);
+        }
+
+        fprintf(file, "{\"name\":");
+        write_json_string(file, pin->name);
+        fprintf(file, ",\"port\":");
+        write_json_string(file, pin->port);
+        fprintf(file, ",\"index\":%u", pin->index);
+        fprintf(file, ",\"mode\":");
+        write_json_string(file, pin->mode);
+        fprintf(file, ",\"level\":");
+        if (pin->level < 0) {
+            fprintf(file, "null");
+        } else {
+            fprintf(file, "%d", pin->level);
+        }
+        fprintf(file, ",\"label\":");
+        write_json_string(file, pin->label);
+        fprintf(file, "}");
+    }
+    fputc(']', file);
+}
+
+static void write_snapshot(FILE *file, const sim_t *sim) {
+    fprintf(file,
+        ",\"cpu\":{"
+        "\"pc\":%u,"
+        "\"msp\":%u,"
+        "\"lr\":%u,"
+        "\"xpsr\":%u,"
+        "\"primask\":%u,"
+        "\"instr_count\":%llu"
+        "}",
+        sim->cpu.pc,
+        sim->cpu.msp,
+        sim->cpu.lr,
+        sim->cpu.xpsr,
+        sim->cpu.primask,
+        (unsigned long long)sim->cpu.instr_count);
+
+    fprintf(file,
+        ",\"peripherals\":{"
+        "\"tim2\":{"
+        "\"cr1\":%u,"
+        "\"psc\":%u,"
+        "\"arr\":%u,"
+        "\"cnt\":%u,"
+        "\"dier\":%u,"
+        "\"sr\":%u"
+        "},"
+        "\"usart1\":{"
+        "\"sr\":%u,"
+        "\"dr\":%u,"
+        "\"brr\":%u,"
+        "\"cr1\":%u"
+        "},"
+        "\"nvic\":{"
+        "\"selected\":%d,"
+        "\"enabled\":",
+        sim->tim2.cr1,
+        sim->tim2.psc,
+        sim->tim2.arr,
+        sim->tim2.cnt,
+        sim->tim2.dier,
+        sim->tim2.sr,
+        sim->usart1.sr,
+        sim->usart1.dr,
+        sim->usart1.brr,
+        sim->usart1.cr1,
+        nvic_select_next(&sim->nvic));
+    write_irq_list(file, sim->nvic.enabled);
+    fprintf(file, ",\"pending\":");
+    write_irq_list(file, sim->nvic.pending);
+    fprintf(file, "}},\"pins\":");
+    write_pin_snapshot(file);
+}
+
 static int write_json_result(const cli_options_t *options, const sim_t *sim, sim_stop_reason_t reason, int exit_code) {
     FILE *file;
 
@@ -240,6 +368,7 @@ static int write_json_result(const cli_options_t *options, const sim_t *sim, sim
     fprintf(file, "\"uart_output\":");
     write_json_string(file, sim_uart_output_data(sim));
     fprintf(file, ",\"instructions_executed\":%llu", (unsigned long long)sim->cpu.instr_count);
+    write_snapshot(file, sim);
     fprintf(file, "}\n");
     fclose(file);
     return 0;

@@ -33,6 +33,18 @@ func TestRunUsesSimulatorContract(t *testing.T) {
 	if result.UARTOutput != "OK" || result.InstructionsExecuted != 42 {
 		t.Fatalf("simulator result was not parsed: %+v", result)
 	}
+	if result.CPU == nil || result.CPU.PC != 0x08000010 || result.CPU.InstrCount != 42 {
+		t.Fatalf("CPU snapshot was not parsed: %+v", result.CPU)
+	}
+	if result.Peripherals == nil || result.Peripherals.TIM2.ARR != 7 || result.Peripherals.USART1.CR1 != 0x2008 {
+		t.Fatalf("peripheral snapshot was not parsed: %+v", result.Peripherals)
+	}
+	if result.Peripherals.NVIC.Selected != 28 || len(result.Peripherals.NVIC.Enabled) != 1 || result.Peripherals.NVIC.Enabled[0] != 28 {
+		t.Fatalf("NVIC snapshot was not parsed: %+v", result.Peripherals.NVIC)
+	}
+	if len(result.Pins) != 1 || result.Pins[0].Name != "PA2" || result.Pins[0].Level != nil || result.Pins[0].Label != "USART1_TX" {
+		t.Fatalf("pin snapshot was not parsed: %+v", result.Pins)
+	}
 	if result.ErrorCode != "" || result.Error != "" {
 		t.Fatalf("success should not carry error details: %+v", result)
 	}
@@ -216,6 +228,32 @@ func TestHelperProcess(t *testing.T) {
 		ExitCode:             exitCode,
 		UARTOutput:           "OK",
 		InstructionsExecuted: instructions,
+		CPU: &model.CPUSnapshot{
+			PC:         0x08000010,
+			MSP:        0x20000100,
+			LR:         0xFFFFFFFF,
+			XPSR:       0x01000000,
+			PRIMASK:    0,
+			InstrCount: instructions,
+		},
+		Peripherals: &model.PeripheralSnapshot{
+			TIM2: model.TIM2Snapshot{
+				ARR: 7,
+				CNT: 3,
+			},
+			USART1: model.USART1Snapshot{
+				SR:  0x80,
+				CR1: 0x2008,
+			},
+			NVIC: model.NVICSnapshot{
+				Selected: 28,
+				Enabled:  []int{28},
+				Pending:  []int{},
+			},
+		},
+		Pins: []model.PinSnapshot{
+			{Name: "PA2", Port: "A", Index: 2, Mode: "unknown", Level: nil, Label: "USART1_TX"},
+		},
 	})
 	if err := os.WriteFile(jsonResultPath, data, 0o600); err != nil {
 		os.Exit(12)

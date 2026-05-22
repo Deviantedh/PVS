@@ -2,6 +2,8 @@
 
 ## Ближайшие задачи
 
+- Подключить GPIO/MMIO-модель к pin snapshot
+- Заменить replay-backed session step/run на stateful debug bridge к симулятору
 - При желании добавить CLI smoke test в `CTest`
 - Синхронизировать `CPU_ISA_COVERAGE.md` с фактической реализацией CPU
 - Добавить `--version` в CLI
@@ -22,6 +24,7 @@
 - nested interrupts
 - дополнительные Thumb-инструкции по мере необходимости
 - Go-микросервис: добавить реальную KeyDB-интеграцию
+- Добавить live events/WebSocket для step/debug режима
 - `KeyDB`
 - `OpenTelemetry`
 
@@ -44,3 +47,9 @@
 - Демонстрационный firmware-сценарий `hello_uart`
 - Демонстрационный firmware-сценарий `timer_irq`
 - End-to-end demo `TIM2 IRQ -> USART1`
+- Стартовый GUI-план и статический каркас `gui/`
+- HTTP endpoint `POST /api/run` в `service/`
+- Подключение `gui/app.js` к `POST /api/run`
+- Result snapshot для CPU/peripherals в CLI, Go runner и HTTP API
+- Минимальный pin snapshot и отображение pins в GUI
+- Первый live/session API с SSE events и session-local pin overlay

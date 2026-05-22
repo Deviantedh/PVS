@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PVS Board GUI</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <div>
+          <h1>Board control surface</h1>
+          <p class="lead">
+            Minimal frontend for the Go service API. Submit a raw firmware job, run the simulator through the backend, and inspect the returned result.
+          </p>
+        </div>
+        <div class="status-card">
+          <span class="status-dot"></span>
+          <div>
+            <strong id="run-status">idle</strong>
+            <span id="stop-reason">waiting for backend API</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="grid">
+        <article class="panel run-panel">
+          <header>
+            <p class="eyebrow">Run job</p>
+            <h2>POST /api/run</h2>
+          </header>
+          <form id="run-form" class="run-form">
+            <label>
+              <span>Backend URL</span>
+              <input id="backend-url" name="backend_url" type="url" value="http://127.0.0.1:8080/api/run" required>
+            </label>
+
+            <label>
+              <span>Job ID</span>
+              <input id="job-id" name="job_id" type="text" value="gui-demo" required>
+            </label>
+
+            <label class="wide-field">
+              <span>Firmware, base64 raw binary</span>
+              <textarea id="firmware" name="firmware" rows="5" spellcheck="false" required>AAEAIAkAAAgAv/7n</textarea>
+            </label>
+
+            <label>
+              <span>Max instructions</span>
+              <input id="max-instructions" name="max_instructions" type="number" min="1" value="1000">
+            </label>
+
+            <label>
+              <span>Timeout, ms</span>
+              <input id="timeout-ms" name="timeout_ms" type="number" min="1" value="5000">
+            </label>
+
+            <label class="wide-field">
+              <span>UART input</span>
+              <input id="uart-input" name="uart_input" type="text" value="">
+            </label>
+
+            <div class="form-actions">
+              <button id="run-button" type="submit">Run simulator</button>
+              <button id="create-session-button" type="button">Create session</button>
+              <button id="step-session-button" type="button" disabled>Step</button>
+              <button id="run-session-button" type="button" disabled>Run session</button>
+              <button id="stop-session-button" type="button" disabled>Stop</button>
+              <span id="request-state">ready</span>
+            </div>
+          </form>
+        </article>
+
+        <article class="panel board-panel">
+          <header>
+            <p class="eyebrow">Blue Pill</p>
+            <h2>Live pins</h2>
+          </header>
+          <div class="board">
+            <div class="pin-column" id="pins-left"></div>
+            <div class="chip">
+              <span>STM32F103C8T6</span>
+            </div>
+            <div class="pin-column" id="pins-right"></div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <header>
+            <p class="eyebrow">Output</p>
+            <h2>UART1 TX</h2>
+          </header>
+          <pre class="terminal" id="uart-output"></pre>
+        </article>
+
+        <article class="panel">
+          <header>
+            <p class="eyebrow">Session</p>
+            <h2>Live state</h2>
+          </header>
+          <dl class="kv" id="session-summary"></dl>
+        </article>
+
+        <article class="panel">
+          <header>
+            <p class="eyebrow">Result</p>
+            <h2>Run summary</h2>
+          </header>
+          <dl class="kv" id="result-summary"></dl>
+        </article>
+
+        <article class="panel">
+          <header>
+            <p class="eyebrow">CPU</p>
+            <h2>Snapshot</h2>
+          </header>
+          <dl class="kv" id="cpu-snapshot"></dl>
+        </article>
+
+        <article class="panel">
+          <header>
+            <p class="eyebrow">Peripherals</p>
+            <h2>Snapshot</h2>
+          </header>
+          <dl class="kv" id="peripheral-snapshot"></dl>
+        </article>
+
+        <article class="panel">
+          <header>
+            <p class="eyebrow">Raw JSON</p>
+            <h2>Backend response</h2>
+          </header>
+          <pre class="json-view" id="raw-result"></pre>
+        </article>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
